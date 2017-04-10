@@ -29,6 +29,7 @@ public slots:
     void changeSize(int width, int height);
     void addRectangle(QString name, int type, int sectionNumb);
     void drawLine(QPointF from, QPointF to);
+    void clearScene();
 
     // void mouseReleaseEvent(QMouseEvent * e);
     // void mouseDoubleClickEvent(QMouseEvent * e);

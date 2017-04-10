@@ -16,12 +16,29 @@
 #include <QHBoxLayout>
 
 #include <iostream>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <QString>
+#include <bitset>
 
+//#include <elfio/elfio.hpp>
 #include "myqgraphicsview.h"
-#include <elfio/elfio.hpp>
+#include "elf.h"
+
+using namespace std;
+
+typedef struct elfArchitecture {
+
+  int type;
+  Elf64_Off offset;
+  struct elfArchitecture * next;
+
+} *TElfArchitecture;
+
+typedef struct {
+    TElfArchitecture First;
+} TList;
 
 namespace Ui {
 class MainWindow;
@@ -43,6 +60,7 @@ public slots:
 
 private slots:
     void on_actionOpen_File_triggered();
+    int readHeader(fstream* file, Elf64_Ehdr* headInf, int controll);
     void resizeEvent(QResizeEvent* event);
 
 private:
@@ -50,7 +68,8 @@ private:
     QTextEdit * assembleTE;
     QTextEdit * attributeTE;
     MyQGraphicsView * gv;
-
+    TList elfArch;
+    QString filename;
 protected:
 
 };

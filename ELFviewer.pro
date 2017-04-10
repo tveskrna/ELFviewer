@@ -17,6 +17,7 @@ SOURCES += main.cpp\
     mygraphicalview.cpp
 
 HEADERS  += mainwindow.h \
-    myqgraphicsview.h
+    myqgraphicsview.h \
+    elf.h
 
 FORMS    += mainwindow.ui

@@ -26,17 +26,18 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->setupUi(this);
     this->setBaseSize(1000, 600);
 
-    this->assembleTE = new QTextEdit();
-    this->assembleTE->setReadOnly(true);
-    ui->horizontalLayout->layout()->addWidget(this->assembleTE);
+    this->gv = new MyQGraphicsView();
+    this->gv->setMaximumWidth(329);
+    ui->horizontalLayout->layout()->addWidget(this->gv);
 
     this->attributeTE = new QTextEdit();
     this->attributeTE->setReadOnly(true);
     ui->horizontalLayout->layout()->addWidget(this->attributeTE);
 
-    this->gv = new MyQGraphicsView();
-    this->gv->setMaximumWidth(329);
-    ui->horizontalLayout->layout()->addWidget(this->gv);
+    this->assembleTE = new QTextEdit();
+    this->assembleTE->setReadOnly(true);
+    ui->horizontalLayout->layout()->addWidget(this->assembleTE);
+    //this->assembleTE->setVisible(false);
 
     this->elfArch.First = NULL;
 
@@ -45,55 +46,250 @@ MainWindow::MainWindow(QWidget *parent) :
     emit resizeWindow(1, 1);
 }
 
-void MainWindow::clickedOnGraph(QPointF pt)
+//********************************operations-with-list**************************************
+//******************************************************************************************
+
+TElfArchitecture MainWindow::seekRecord(int orderNumber)
 {
-    int up;
-    int down;
-    int pos = 0;
-    while (true)
+    TElfArchitecture result;
+
+    if (this->elfArch.count > orderNumber)
     {
-        up   = 10 + pos * 35;
-        down = 10 + pos * 35 + 25;
-        if (pt.y() >= up && pt.y() <= down)
+        result = elfArch.First;
+        for (int i = 0; i < orderNumber; i++)
         {
-            break;
+            result = result->next;
         }
-        pos++;
+        return result;
     }
-    if (pos == HEADER)
+    else return NULL;
+}
+
+int MainWindow::addRecord(TElfArchitecture* newItem)
+{
+    TElfArchitecture * item;
+    item = &elfArch.First;
+
+    if ((*newItem)->type == SEGMENT)
     {
-        Elf64_Ehdr header;
-        fstream file ((this->filename).toStdString().c_str(), ios::in|ios::binary|ios::ate);
-        if (file.is_open())
+        while((*item)->nextSeg != NULL)
         {
-            int result = readHeader(&file, &header, READ);
-            if (result == 0)
+            item = &(*item)->nextSeg;
+        }
+        (*item)->nextSeg = (*newItem);
+
+        while((*item)->next != NULL)
+        {
+            item = &(*item)->next;
+        }
+        (*item)->next = (*newItem);
+    }
+    else        //SECTION
+    {
+        if ((*item)->nextSeg != NULL)
+        {
+            while(true)
             {
-                this->gv->addRectangle("ELF Header", HEADER, HEADER);
+                if (((*newItem)->offset >= (*item)->offset) && ((*newItem)->offset < ((*item)->offset + (*item)->size)))
+                {
+                    while(true)
+                    {
+                        if ((*item)->next != NULL)
+                        {
+                            if ((*item)->next->type == SEGMENT)
+                            {
+                                (*newItem)->next = (*item)->next;
+                                (*item)->next = (*newItem);
+                                break;
+                            }
+                            else item = &(*item)->next;
+                        }
+                        else    //end of list
+                        {
+                            (*item)->next = (*newItem);
+                            break;
+                        }
+                    }
+                    break;
+                }
+                else
+                {
+                    if ((*item)->nextSeg != NULL)       //find segment which contains this section
+                    {
+                        item = &(*item)->nextSeg;
+                    }
+                    else (*item)->nextSeg = (*newItem); //section is not assigned to any segment
+                }
             }
-            else
-            {
-                if (result == 1) QMessageBox::critical(this, "Wrong ELF file", "ELF header of: " + filename + " is not right.");
-                if (result == 2) QMessageBox::critical(this, "Wrong ELF file", "ELF header of: " + filename + " is not right.\n Incorrect file class.");
-                if (result == 3) QMessageBox::critical(this, "Wrong ELF file", "ELF header of: " + filename + " is not right.\n Incorrect file encoding.");
-                if (result == 4) QMessageBox::critical(this, "Wrong ELF file", "ELF header of: " + filename + " is not right.\n Incorrect fie version.");
-                file.close();
-                return;
-            }
-            file.close();
+
         }
         else
         {
-            if (filename != "") QMessageBox::critical(this, "Wrong ELF file", "Can't open file: " + filename + " is not right");
+            while(true)
+            {
+                if ((*item)->next != NULL)
+                {
+                    if ((*item)->next->type == SEGMENT)
+                    {
+                        (*newItem)->next = (*item)->next;
+                        (*item)->next = (*newItem);
+                        break;
+                    }
+                    else item = &(*item)->next;
+                }
+                else    //end of list
+                {
+                    (*item)->next = (*newItem);
+                    break;
+                }
+            }
         }
+
     }
-    //rect->setRect(50 + type * 20, sectionNumb * 35 + 10, 200, 25);
-    //this->assembleTE->append(QString("x = %1, y = %2").arg(pt.x()).arg(pt.y()));
+
+    this->elfArch.count++;
+    return 0;
 }
 
+
+//********************************Read-ELF**************************************************
+//******************************************************************************************
+
+
+int MainWindow::readHeader(fstream* file, Elf64_Ehdr* header, int controll)
+{
+    (*file).read ((char*) &(*header).e_ident, sizeof((*header).e_ident));
+
+    //first 4 bytes are magical numbers
+    if ((*header).e_ident[0] != 127) return 1;  //it's magical constant
+    if ((*header).e_ident[1] != 'E') return 1;  //it's magical constant
+    if ((*header).e_ident[2] != 'L') return 1;  //it's magical constant
+    if ((*header).e_ident[3] != 'F') return 1;  //it's magical constant
+
+    //5'th byte is class (invalid, 32-bit, 64-bit)
+    if ((*header).e_ident[4] == 0) return 2;            //invalid
+
+    //6'th byte is data encoding (invalid, LSB, MSB)
+    if ((*header).e_ident[5] == 0) return 3;            //invalid
+
+    //7'th byte is version of file (invalid, current)
+    if ((*header).e_ident[6] == 0) return 4;            //invalid
+
+    //other bytes are at this version of ELF format unused
+
+    (*file).read ((char*) &(*header).e_type, sizeof((*header).e_type));
+    (*file).read ((char*) &(*header).e_machine, sizeof((*header).e_machine));
+    (*file).read ((char*) &(*header).e_version, sizeof((*header).e_version));
+    (*file).read ((char*) &(*header).e_entry, sizeof((*header).e_entry));
+    (*file).read ((char*) &(*header).e_phoff, sizeof((*header).e_phoff));
+    (*file).read ((char*) &(*header).e_shoff, sizeof((*header).e_shoff));
+    (*file).read ((char*) &(*header).e_flags, sizeof((*header).e_flags));
+    (*file).read ((char*) &(*header).e_ehsize, sizeof((*header).e_ehsize));
+    (*file).read ((char*) &(*header).e_phentsize, sizeof((*header).e_phentsize));
+    (*file).read ((char*) &(*header).e_phnum, sizeof((*header).e_phnum));
+    (*file).read ((char*) &(*header).e_shentsize, sizeof((*header).e_shentsize));
+    (*file).read ((char*) &(*header).e_shnum, sizeof((*header).e_shnum));
+    (*file).read ((char*) &(*header).e_shstrndx, sizeof((*header).e_shstrndx));
+
+    if (controll == CHECK)
+    {
+        TElfArchitecture item = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
+        item->type = HEADER;
+        item->offset = 0;
+        item->next = NULL;
+        item->nextSeg = NULL;
+        item->size = 64;
+
+        this->elfArch.First = item;
+
+        if ((*header).e_ident[4] == 1) this->elfArch.arch32 = true;
+        else this->elfArch.arch32 = false;
+
+        if ((*header).e_ident[5] == 1) this->elfArch.lsb = true;
+        else this->elfArch.lsb = false;
+
+        this->elfArch.count = 1;
+    }
+
+    return 0;
+}
+
+int MainWindow::readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* segment64, int offset, int controll)
+{
+
+    if (this->elfArch.arch32)
+    {
+        (*file).read ((char*) &(*segment32).p_type, sizeof((*segment32).p_type));
+        (*file).read ((char*) &(*segment32).p_flags, sizeof((*segment32).p_flags));
+        (*file).read ((char*) &(*segment32).p_offset, sizeof((*segment32).p_offset));
+        (*file).read ((char*) &(*segment32).p_vaddr, sizeof((*segment32).p_vaddr));
+        (*file).read ((char*) &(*segment32).p_paddr, sizeof((*segment32).p_paddr));
+        (*file).read ((char*) &(*segment32).p_filesz, sizeof((*segment32).p_filesz));
+        (*file).read ((char*) &(*segment32).p_memsz, sizeof((*segment32).p_memsz));
+        (*file).read ((char*) &(*segment32).p_align, sizeof((*segment32).p_align));
+    }
+    else
+    {
+        (*file).read ((char*) &(*segment64).p_type, sizeof((*segment64).p_type));
+        (*file).read ((char*) &(*segment64).p_flags, sizeof((*segment64).p_flags));
+        (*file).read ((char*) &(*segment64).p_offset, sizeof((*segment64).p_offset));
+        (*file).read ((char*) &(*segment64).p_vaddr, sizeof((*segment64).p_vaddr));
+        (*file).read ((char*) &(*segment64).p_paddr, sizeof((*segment64).p_paddr));
+        (*file).read ((char*) &(*segment64).p_filesz, sizeof((*segment64).p_filesz));
+        (*file).read ((char*) &(*segment64).p_memsz, sizeof((*segment64).p_memsz));
+        (*file).read ((char*) &(*segment64).p_align, sizeof((*segment64).p_align));
+    }
+
+    if (controll == CHECK)
+    {
+        TElfArchitecture item = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
+        item->type = SEGMENT;
+
+        if (this->elfArch.arch32) item->offset = segment32->p_offset;
+        else item->offset = segment64->p_offset;
+
+        item->offsetHeader = offset;
+
+        item->next = NULL;
+        item->nextSeg = NULL;
+
+        if (this->elfArch.arch32) item->size = segment32->p_filesz;
+        else item->size = segment64->p_filesz;
+
+        addRecord(&item);
+        //this->elfArch.count = this->elfArch.count + 1;
+    }
+
+    return 0;
+}
+
+QString readFlags(Elf32_Word value)
+{
+    QString result = "";
+
+    if ((value & (1 << 0)) != 0) result = "Write";
+
+    if ((value & (1 << 1)) != 0)
+    {
+        if (result == "") result = "Alloc";
+        else result = result + ", Alloc";
+    }
+
+    if ((value & (1 << 2)) != 0)
+    {
+        if (result == "") result = "Executable";
+        else result = result + ", Executable";
+    }
+
+    return result;
+}
+
+//***********************************Events*************************************************
+//******************************************************************************************
 void MainWindow::on_actionOpen_File_triggered()
 {
     Elf64_Ehdr header;
+
 
     QString filename;
 
@@ -107,25 +303,13 @@ void MainWindow::on_actionOpen_File_triggered()
     fstream file (filename.toStdString().c_str(), ios::in|ios::binary|ios::ate);
     if (file.is_open())
     {
+        //HEADER
+        file.seekg (0, ios::beg);   //start of file
         int result = readHeader(&file, &header, CHECK);
+
         if (result == 0)
         {
-
             this->gv->addRectangle("ELF Header", HEADER, HEADER);
-            /*
-            int i = 0;
-            int j = 0;
-            for(i = 1; i < 9; i++)
-            {
-                this->gv->addRectangle(QString("Segment %1").arg(i), SEGMENT, i + j);
-                if (i == 3)
-                {
-                    for(j = 1; j < 3; j++)
-                    this->gv->addRectangle(QString("Section %1").arg(j), SECTION, i + j);
-                    j = j-1;
-                }
-            }*/
-
         }
         else
         {
@@ -137,6 +321,28 @@ void MainWindow::on_actionOpen_File_triggered()
             return;
         }
 
+        //SEGMENT
+        if (header.e_phoff != 0)    //there is program header
+        {
+            Elf32_Phdr segment32;
+            Elf64_Phdr segment64;
+            int result;
+
+            int offset = header.e_phoff;
+            file.seekg(offset, ios::beg);
+
+            for (int i = 0; i < header.e_phnum; i++)
+            {
+                result = readSegment(&file, &segment32, &segment64, header.e_phoff + i * header.e_phentsize, CHECK);
+                if (result == 0)
+                {
+                    this->gv->addRectangle("Segment", SEGMENT, i+1);
+                }
+            }
+        }
+
+        //SECTION
+
         file.close();
     }
     else
@@ -146,131 +352,263 @@ void MainWindow::on_actionOpen_File_triggered()
     return;
 }
 
-int MainWindow::readHeader(fstream* file, Elf64_Ehdr* header, int controll)
+void MainWindow::clickedOnGraph(QPointF pt)
 {
-    //check block
-    (*file).seekg (0, ios::beg);   //start of file
-    (*file).read ((char*) &(*header).e_ident, sizeof((*header).e_ident));
+    TElfArchitecture record;
+    int up, down, left, right;
+    int pos = 0;
 
-    //first 4 bytes are magical numbers
-    if ((*header).e_ident[0] != 127) return 1;  //it's magical constant
-    if ((*header).e_ident[1] != 'E') return 1;  //it's magical constant
-    if ((*header).e_ident[2] != 'L') return 1;  //it's magical constant
-    if ((*header).e_ident[3] != 'F') return 1;  //it's magical constant
-
-    //5'th byte is class (invalid, 32-bit, 64-bit)
-    if ((*header).e_ident[4] == 0) return 2;                        //invalid
-    /*else if (header.e_ident[4] == 1) ((*headInf).classELF = 32); //32-bit
-    else ((*headInf).classELF = 64);                                //64-bit
-    */
-    //6'th byte is data encoding (invalid, LSB, MSB)
-    if ((*header).e_ident[5] == 0) return 3;                            //invalid
-    /*else if (elfHeader.e_ident[5] == 0) ((*headInf).encodingELF = 1);   //LSB
-    else ((*headInf).encodingELF = 2);                                  //MSB
-    */
-    //7'th byte is version of file (invalid, current)
-    if ((*header).e_ident[6] == 0) return 4;   //invalid
-
-    //other bytes are at this version of ELF format unused
-
-    if (controll == READ)
+    while (pos < this->gv->height())
     {
-        this->attributeTE->clear();
-
-        (*file).read ((char*) &(*header).e_type, sizeof((*header).e_type));
-        (*file).read ((char*) &(*header).e_machine, sizeof((*header).e_machine));
-        (*file).read ((char*) &(*header).e_version, sizeof((*header).e_version));
-        (*file).read ((char*) &(*header).e_entry, sizeof((*header).e_entry));
-        (*file).read ((char*) &(*header).e_phoff, sizeof((*header).e_phoff));
-        (*file).read ((char*) &(*header).e_shoff, sizeof((*header).e_shoff));
-        (*file).read ((char*) &(*header).e_flags, sizeof((*header).e_flags));
-        (*file).read ((char*) &(*header).e_ehsize, sizeof((*header).e_ehsize));
-        (*file).read ((char*) &(*header).e_phentsize, sizeof((*header).e_phentsize));
-        (*file).read ((char*) &(*header).e_phnum, sizeof((*header).e_phnum));
-        (*file).read ((char*) &(*header).e_shentsize, sizeof((*header).e_shentsize));
-        (*file).read ((char*) &(*header).e_shnum, sizeof((*header).e_shnum));
-        (*file).read ((char*) &(*header).e_shstrndx, sizeof((*header).e_shstrndx));
-
-        switch (((*header).e_type)) {
-        case NO_TYPE:
-            this->attributeTE->append(QString("File type: no type"));
-            break;
-        case RELOCATABLE:
-            this->attributeTE->append(QString("File type: relocatable"));
-            break;
-        case EXECUTABLE:
-            this->attributeTE->append(QString("File type: executable"));
-            break;
-        case SHARED:
-            this->attributeTE->append(QString("File type: shared"));
-            break;
-        case CORE:
-            this->attributeTE->append(QString("File type: core"));
-            break;
-        default:
-            this->attributeTE->append(QString("File type: procesor specific %1").arg((*header).e_type));
-            break;
-        }
-
-
-        if ((*header).e_ident[4] == 1) this->attributeTE->append(QString("File class: 32-bit"));
-        else this->attributeTE->append(QString("File class: 64-bit"));
-
-        if ((*header).e_ident[5] == 1) this->attributeTE->append(QString("File encoding: LSB"));   //LSB
-        else this->attributeTE->append(QString("File encoding: MSB"));   //MSB
-
-        //(*file).read ((char*) &(*header).e_ehsize, sizeof((*header).e_ehsize));
-        this->attributeTE->append(QString("Header size: %1\n").arg((*header).e_ehsize));
-
-        //(*file).read ((char*) &(*header).e_phoff, sizeof((*header).e_phoff));
-        //(*file).read ((char*) &(*header).e_phnum, sizeof((*header).e_phnum));
-        //(*file).read ((char*) &(*header).e_phentsize, sizeof((*header).e_phentsize));
-        if ((*header).e_phoff != 0)
+        up   = 10 + pos * 35;
+        down = 10 + pos * 35 + 25;
+        if (pt.y() >= up && pt.y() <= down)
         {
-            this->attributeTE->append(QString("Programm header offset: %1").arg((*header).e_phoff));
-            this->attributeTE->append(QString("Number of program header entries: %1").arg((*header).e_phnum));
-            this->attributeTE->append(QString("Programm header entry size: %1\n").arg((*header).e_phentsize));
-        }
-        else this->attributeTE->append(QString("File has no programm header\n"));
+            record = seekRecord(pos);
+            if (record == NULL) break;
 
-        //(*file).read ((char*) &(*header).e_shoff, sizeof((*header).e_shoff));
-        //(*file).read ((char*) &(*header).e_shnum, sizeof((*header).e_shnum));
-        //(*file).read ((char*) &(*header).e_shentsize, sizeof((*header).e_shentsize));
-        if ((*header).e_shoff != 0)
-        {
-            this->attributeTE->append(QString("Section header table offset: %1").arg((*header).e_shoff));
-            this->attributeTE->append(QString("Number of section header table entries: %1").arg((*header).e_shnum));
-            this->attributeTE->append(QString("Section header table entry size: %1\n").arg((*header).e_shentsize));
-        }
-        else this->attributeTE->append(QString("File has no section header table\n"));
+            left = 50 + record->type * 20;       //error
+            right = 50 + record->type * 20 + 200;
 
-        //(*file).read ((char*) &(*header).e_shstrndx, sizeof((*header).e_shstrndx));
-        if ((*header).e_shstrndx != 0)
-        {
-            this->attributeTE->append(QString("Section name string table index: %1").arg((*header).e_shstrndx));
-        }
+            if ((pt.x() >= left) && (pt.x() <= right))
+            {
+                fstream file (filename.toStdString().c_str(), ios::in|ios::binary|ios::ate);
+                if (file.is_open())
+                {
+                    int result;
+                    file.seekg(record->offset, ios::beg);
+                    this->attributeTE->clear();
+                    this->assembleTE->clear();
 
+                    switch (record->type) {
+                    case HEADER:
+
+                        Elf64_Ehdr header;
+                        result = readHeader(&file, &header, READ);
+
+                        switch (header.e_type) {
+                            case NO_TYPE:
+                                this->attributeTE->append(QString("File type: no type"));
+                                break;
+                            case RELOCATABLE:
+                                this->attributeTE->append(QString("File type: relocatable"));
+                                break;
+                            case EXECUTABLE:
+                                this->attributeTE->append(QString("File type: executable"));
+                                break;
+                            case SHARED:
+                                this->attributeTE->append(QString("File type: shared"));
+                                break;
+                            case CORE:
+                                this->attributeTE->append(QString("File type: core"));
+                                break;
+                            default:
+                                this->attributeTE->append(QString("File type: procesor specific %1").arg(header.e_type));
+                                break;
+                        }
+
+                        if (header.e_ident[4] == 1) this->attributeTE->append(QString("File class: 32-bit"));
+                        else this->attributeTE->append(QString("File class: 64-bit"));
+
+                        if (header.e_ident[5] == 1) this->attributeTE->append(QString("File encoding: LSB"));   //LSB
+                        else this->attributeTE->append(QString("File encoding: MSB"));   //MSB
+
+                        this->attributeTE->append(QString("Header size: %1\n").arg(header.e_ehsize));
+
+                        if (header.e_phoff != 0)
+                        {
+                            this->attributeTE->append(QString("Programm header offset: %1").arg(header.e_phoff));
+                            this->attributeTE->append(QString("Number of program header entries: %1").arg(header.e_phnum));
+                            this->attributeTE->append(QString("Programm header entry size: %1\n").arg(header.e_phentsize));
+                        }
+                        else this->attributeTE->append(QString("File has no programm header\n"));
+
+                        if (header.e_shoff != 0)
+                        {
+                            this->attributeTE->append(QString("Section header table offset: %1").arg(header.e_shoff));
+                            this->attributeTE->append(QString("Number of section header table entries: %1").arg(header.e_shnum));
+                            this->attributeTE->append(QString("Section header table entry size: %1\n").arg(header.e_shentsize));
+                        }
+                        else this->attributeTE->append(QString("File has no section header table\n"));
+
+                        if (header.e_shstrndx != 0)
+                        {
+                            this->attributeTE->append(QString("Section name string table index: %1").arg(header.e_shstrndx));
+                        }
+
+                        break;
+
+                    case SEGMENT:
+
+                        Elf32_Phdr segment32;
+                        Elf64_Phdr segment64;
+                        int result;
+
+                        file.seekg(record->offsetHeader, ios::beg);
+
+                        result = readSegment(&file, &segment32, &segment64, 0, READ);
+                        if (result == 0)
+                        {
+                            if (this->elfArch.arch32)
+                            {
+                                switch (segment32.p_type)
+                                {
+                                    case PT_NULL:
+                                        this->attributeTE->append(QString("Segment type: PT_NULL"));
+                                    break;
+
+                                    case PT_LOAD :
+                                        this->attributeTE->append(QString("Segment type: PT_LOAD"));
+                                    break;
+
+                                    case PT_DYNAMIC :
+                                        this->attributeTE->append(QString("Segment type: PT_DYNAMIC"));
+                                    break;
+
+                                    case PT_INTERP :
+                                        this->attributeTE->append(QString("Segment type: PT_INTERP"));
+                                    break;
+
+                                    case PT_NOTE :
+                                        this->attributeTE->append(QString("Segment type: PT_NOTE"));
+                                    break;
+
+                                    case PT_SHLIB :
+                                        this->attributeTE->append(QString("Segment type: PT_SHLIB"));
+                                    break;
+
+                                    case PT_PHDR :
+                                        this->attributeTE->append(QString("Segment type: PT_PHDR"));
+                                    break;
+
+                                    case PT_LOPROC :
+                                        this->attributeTE->append(QString("Segment type: PT_LOPROC"));
+                                    break;
+
+                                    case PT_HIPROC :
+                                        this->attributeTE->append(QString("Segment type: PT_HIPROC"));
+                                    break;
+
+                                    case PT_TLS:
+                                        this->attributeTE->append(QString("Segment type: PT_TLS"));
+                                    break;
+
+                                    case PT_LOOS:
+                                        this->attributeTE->append(QString("Segment type: PT_LOOS"));
+                                    break;
+
+                                    case PT_HIOS:
+                                        this->attributeTE->append(QString("Segment type: PT_HIOS"));
+                                    break;
+
+                                    default:
+                                        this->attributeTE->append(QString("Segment type: Procesor specific (%1)").arg(segment32.p_type));
+                                    break;
+                                }
+
+                                this->attributeTE->append(QString("Segment offset: %1").arg(segment32.p_offset));
+                                this->attributeTE->append(QString("Segment virtual address: %1").arg(segment32.p_vaddr));
+                                this->attributeTE->append(QString("Segment physical address: %1").arg(segment32.p_paddr));
+                                this->attributeTE->append(QString("Segment size in file: %1").arg(segment32.p_filesz));
+                                this->attributeTE->append(QString("Segment size in memory: %1").arg(segment32.p_memsz));
+                                QString flags = readFlags(segment32.p_flags);
+                                this->attributeTE->append(QString("Segment flags: " + flags));
+                                this->attributeTE->append(QString("Segment align: %1").arg(segment32.p_align));
+
+                            }
+                            else
+                            {
+                                switch (segment64.p_type)
+                                {
+                                    case PT_NULL:
+                                        this->attributeTE->append(QString("Segment type: PT_NULL"));
+                                    break;
+
+                                    case PT_LOAD :
+                                        this->attributeTE->append(QString("Segment type: PT_LOAD"));
+                                    break;
+
+                                    case PT_DYNAMIC :
+                                        this->attributeTE->append(QString("Segment type: PT_DYNAMIC"));
+                                    break;
+
+                                    case PT_INTERP :
+                                        this->attributeTE->append(QString("Segment type: PT_INTERP"));
+                                    break;
+
+                                    case PT_NOTE :
+                                        this->attributeTE->append(QString("Segment type: PT_NOTE"));
+                                    break;
+
+                                    case PT_SHLIB :
+                                        this->attributeTE->append(QString("Segment type: PT_SHLIB"));
+                                    break;
+
+                                    case PT_PHDR :
+                                        this->attributeTE->append(QString("Segment type: PT_PHDR"));
+                                    break;
+
+                                    case PT_LOPROC :
+                                        this->attributeTE->append(QString("Segment type: PT_LOPROC"));
+                                    break;
+
+                                    case PT_HIPROC :
+                                        this->attributeTE->append(QString("Segment type: PT_HIPROC"));
+                                    break;
+
+                                    case PT_TLS:
+                                        this->attributeTE->append(QString("Segment type: PT_TLS"));
+                                    break;
+
+                                    case PT_LOOS:
+                                        this->attributeTE->append(QString("Segment type: PT_LOOS"));
+                                    break;
+
+                                    case PT_HIOS:
+                                        this->attributeTE->append(QString("Segment type: PT_HIOS"));
+                                    break;
+
+                                    default:
+                                        this->attributeTE->append(QString("Segment type: Procesor specific (%1)").arg(segment32.p_type));
+                                    break;
+                                }
+                                this->attributeTE->append(QString("Segment offset: %1").arg(segment64.p_offset));
+                                this->attributeTE->append(QString("Segment virtual address: %1").arg(segment64.p_vaddr));
+                                this->attributeTE->append(QString("Segment physical address: %1").arg(segment64.p_paddr));
+                                this->attributeTE->append(QString("Segment size in file: %1").arg(segment64.p_filesz));
+                                this->attributeTE->append(QString("Segment size in memory: %1").arg(segment64.p_memsz));
+                                QString flags = readFlags(segment64.p_flags);
+                                this->attributeTE->append(QString("Segment flags: " + flags));
+                                this->attributeTE->append(QString("Segment align: %1").arg(segment64.p_align));
+                            }
+                        }
+
+                        break;
+
+                    case SECTION:
+
+                        break;
+
+                    default:
+                        break;
+                    }
+                    file.close();
+                 }
+
+                break;
+            }
+        }
+        pos++;
     }
-    else //controll == CHECK
-    {
-        TElfArchitecture item = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
-        item->type = HEADER;
-        item->offset = 0;
-        item->next = NULL;
-
-        this->elfArch.First = item;
-    }
-
-    return 0;
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)
 {
-    /*qDebug() << this->gv->size().width();
-    qDebug() << this->baseSize().width();
-    qDebug() << this->gv->width();*/
     emit resizeWindow(this->gv->size().width(), this->gv->size().height());
 }
+
+//******************************************************************************************
+//******************************************************************************************
 
 MainWindow::~MainWindow()
 {

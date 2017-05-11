@@ -32,12 +32,18 @@ typedef struct elfArchitecture {
 
   int type;
   Elf64_Off offset;
+  Elf64_Off offsetHeader;
+  Elf64_Half size;
   struct elfArchitecture * next;
+  struct elfArchitecture * nextSeg;
 
 } *TElfArchitecture;
 
 typedef struct {
     TElfArchitecture First;
+    bool arch32;
+    bool lsb;
+    int count;
 } TList;
 
 namespace Ui {
@@ -61,7 +67,13 @@ public slots:
 private slots:
     void on_actionOpen_File_triggered();
     int readHeader(fstream* file, Elf64_Ehdr* headInf, int controll);
+
+    int readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* segment64, int offset, int controll);
+
     void resizeEvent(QResizeEvent* event);
+
+    int addRecord(TElfArchitecture* newItem);
+    TElfArchitecture seekRecord(int orderNumber);
 
 private:
     Ui::MainWindow *ui;

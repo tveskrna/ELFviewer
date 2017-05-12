@@ -66,10 +66,12 @@ public slots:
 
 private slots:
     void on_actionOpen_File_triggered();
+
     int readHeader(fstream* file, Elf64_Ehdr* headInf, int controll);
-
     int readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* segment64, int offset, int controll);
+    int readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* section64, int offset, int controll);
 
+    void drawChart();
     void resizeEvent(QResizeEvent* event);
 
     int addRecord(TElfArchitecture* newItem);

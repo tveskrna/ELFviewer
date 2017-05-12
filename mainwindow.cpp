@@ -70,87 +70,59 @@ int MainWindow::addRecord(TElfArchitecture* newItem)
     TElfArchitecture * item;
     item = &elfArch.First;
 
-    if ((*newItem)->type == SEGMENT)
+    if ((*newItem)->type == SEGMENT)    //add segments
     {
-        while((*item)->nextSeg != NULL)
-        {
-            item = &(*item)->nextSeg;
-        }
-        (*item)->nextSeg = (*newItem);
-
         while((*item)->next != NULL)
         {
             item = &(*item)->next;
         }
         (*item)->next = (*newItem);
+        this->elfArch.count++;
     }
-    else        //SECTION
+
+    if ((*newItem)->type == SECTION)    //add section
     {
-        if ((*item)->nextSeg != NULL)
+        bool added = false;
+        while((*item)->next != NULL)
         {
-            while(true)
+            if ((*item)->type == SEGMENT)
             {
-                if (((*newItem)->offset >= (*item)->offset) && ((*newItem)->offset < ((*item)->offset + (*item)->size)))
+                if (((*newItem)->offset >= (*item)->offset) && ((*newItem)->offset <= ((*item)->offset + (*item)->size)))
                 {
-                    while(true)
+                    //create new record
+                    TElfArchitecture tmpItem = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
+                    tmpItem->type = SECTION;
+
+                    tmpItem->offset = (*newItem)->offset;
+                    tmpItem->offsetHeader = (*newItem)->offsetHeader;
+
+                    tmpItem->next = NULL;
+                    tmpItem->nextSeg = NULL;
+
+                    tmpItem->size = (*newItem)->size;
+
+                    //add new record
+                    while((*item)->next != NULL && (*item)->next->type != SEGMENT)
                     {
-                        if ((*item)->next != NULL)
-                        {
-                            if ((*item)->next->type == SEGMENT)
-                            {
-                                (*newItem)->next = (*item)->next;
-                                (*item)->next = (*newItem);
-                                break;
-                            }
-                            else item = &(*item)->next;
-                        }
-                        else    //end of list
-                        {
-                            (*item)->next = (*newItem);
-                            break;
-                        }
+                        item = &(*item)->next;
                     }
-                    break;
-                }
-                else
-                {
-                    if ((*item)->nextSeg != NULL)       //find segment which contains this section
-                    {
-                        item = &(*item)->nextSeg;
-                    }
-                    else (*item)->nextSeg = (*newItem); //section is not assigned to any segment
+                    tmpItem->next = (*item)->next;
+                    (*item)->next = tmpItem;
+                    this->elfArch.count++;
+                    added = true;
                 }
             }
-
+            item = &(*item)->next;
         }
-        else
+        if (added == false)
         {
-            while(true)
-            {
-                if ((*item)->next != NULL)
-                {
-                    if ((*item)->next->type == SEGMENT)
-                    {
-                        (*newItem)->next = (*item)->next;
-                        (*item)->next = (*newItem);
-                        break;
-                    }
-                    else item = &(*item)->next;
-                }
-                else    //end of list
-                {
-                    (*item)->next = (*newItem);
-                    break;
-                }
-            }
+            (*item)->next = (*newItem);
+            this->elfArch.count++;
         }
-
     }
 
-    this->elfArch.count++;
     return 0;
 }
-
 
 //********************************Read-ELF**************************************************
 //******************************************************************************************
@@ -263,6 +235,59 @@ int MainWindow::readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* se
     return 0;
 }
 
+int MainWindow::readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* section64, int offset, int controll)
+{
+
+    if (this->elfArch.arch32)
+    {
+        (*file).read ((char*) &(*section32).sh_name, sizeof((*section32).sh_name));
+        (*file).read ((char*) &(*section32).sh_type, sizeof((*section32).sh_type));
+        (*file).read ((char*) &(*section32).sh_flags, sizeof((*section32).sh_flags));
+        (*file).read ((char*) &(*section32).sh_addr, sizeof((*section32).sh_addr));
+        (*file).read ((char*) &(*section32).sh_offset, sizeof((*section32).sh_offset));
+        (*file).read ((char*) &(*section32).sh_size, sizeof((*section32).sh_size));
+        (*file).read ((char*) &(*section32).sh_link, sizeof((*section32).sh_link));
+        (*file).read ((char*) &(*section32).sh_info, sizeof((*section32).sh_info));
+        (*file).read ((char*) &(*section32).sh_addralign, sizeof((*section32).sh_addralign));
+        (*file).read ((char*) &(*section32).sh_entsize, sizeof((*section32).sh_entsize));
+    }
+    else
+    {
+        (*file).read ((char*) &(*section64).sh_name, sizeof((*section64).sh_name));
+        (*file).read ((char*) &(*section64).sh_type, sizeof((*section64).sh_type));
+        (*file).read ((char*) &(*section64).sh_flags, sizeof((*section64).sh_flags));
+        (*file).read ((char*) &(*section64).sh_addr, sizeof((*section64).sh_addr));
+        (*file).read ((char*) &(*section64).sh_offset, sizeof((*section64).sh_offset));
+        (*file).read ((char*) &(*section64).sh_size, sizeof((*section64).sh_size));
+        (*file).read ((char*) &(*section64).sh_link, sizeof((*section64).sh_link));
+        (*file).read ((char*) &(*section64).sh_info, sizeof((*section64).sh_info));
+        (*file).read ((char*) &(*section64).sh_addralign, sizeof((*section64).sh_addralign));
+        (*file).read ((char*) &(*section64).sh_entsize, sizeof((*section64).sh_entsize));
+    }
+
+    if (controll == CHECK)
+    {
+        TElfArchitecture item = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
+        item->type = SECTION;
+
+        if (this->elfArch.arch32) item->offset = section32->sh_offset;
+        else item->offset = section64->sh_offset;
+
+        item->offsetHeader = offset;
+
+        item->next = NULL;
+        item->nextSeg = NULL;
+
+        if (this->elfArch.arch32) item->size = section32->sh_size;
+        else item->size = section64->sh_size;
+
+        addRecord(&item);
+        //this->elfArch.count = this->elfArch.count + 1;
+    }
+
+    return 0;
+}
+
 QString readFlags(Elf32_Word value)
 {
     QString result = "";
@@ -309,7 +334,7 @@ void MainWindow::on_actionOpen_File_triggered()
 
         if (result == 0)
         {
-            this->gv->addRectangle("ELF Header", HEADER, HEADER);
+            //this->gv->addRectangle("ELF Header", HEADER, HEADER);
         }
         else
         {
@@ -336,13 +361,32 @@ void MainWindow::on_actionOpen_File_triggered()
                 result = readSegment(&file, &segment32, &segment64, header.e_phoff + i * header.e_phentsize, CHECK);
                 if (result == 0)
                 {
-                    this->gv->addRectangle("Segment", SEGMENT, i+1);
+                    //this->gv->addRectangle("Segment", SEGMENT, i+1);
                 }
             }
         }
 
         //SECTION
+        if (header.e_shoff != 0)    //there is program header
+        {
+            Elf32_Shdr section32;
+            Elf64_Shdr section64;
+            int result;
 
+            int offset = header.e_shoff;
+            file.seekg(offset, ios::beg);
+
+            for (int i = 0; i < header.e_shnum; i++)
+            {
+                result = readSection(&file, &section32, &section64, header.e_shoff + i * header.e_shentsize, CHECK);
+                if (result == 0)
+                {
+                    //this->gv->addRectangle("Segment", SEGMENT, i+1);
+                }
+            }
+        }
+
+        drawChart();
         file.close();
     }
     else
@@ -357,6 +401,8 @@ void MainWindow::clickedOnGraph(QPointF pt)
     TElfArchitecture record;
     int up, down, left, right;
     int pos = 0;
+
+    this->assembleTE->append(QString("x: %1  y: %2").arg(this->gv->height()).arg(this->gv->width()));
 
     while (pos < this->gv->height())
     {
@@ -502,7 +548,7 @@ void MainWindow::clickedOnGraph(QPointF pt)
                                     break;
 
                                     default:
-                                        this->attributeTE->append(QString("Segment type: Procesor specific (%1)").arg(segment32.p_type));
+                                        this->attributeTE->append(QString("Segment type: Procesor specific"));
                                     break;
                                 }
 
@@ -569,7 +615,7 @@ void MainWindow::clickedOnGraph(QPointF pt)
                                     break;
 
                                     default:
-                                        this->attributeTE->append(QString("Segment type: Procesor specific (%1)").arg(segment32.p_type));
+                                        this->attributeTE->append(QString("Segment type: Procesor specific"));
                                     break;
                                 }
                                 this->attributeTE->append(QString("Segment offset: %1").arg(segment64.p_offset));
@@ -602,9 +648,51 @@ void MainWindow::clickedOnGraph(QPointF pt)
     }
 }
 
+void MainWindow::drawChart()
+{
+    TElfArchitecture * item;
+    item = &elfArch.First;
+    int section = 1;
+
+    this->gv->clearScene();
+    emit resizeWindow(this->gv->size().width(), (elfArch.count + 1) * 35 + 30);
+
+    for (int i = 0; i < elfArch.count; i++)
+    {
+        QString name;
+        if ((*item)->type == HEADER) name = "ELF Header";
+        else if ((*item)->type == SEGMENT)
+        {
+            this->gv->drawLine(50 + SEGMENT * 20, i * 35 + 23, 40 + SEGMENT * 20, i * 35 + 23);
+            this->gv->drawLine(40 + SEGMENT * 20, i * 35 + 23, 40 + SEGMENT * 20, 35);
+            if ((*item)->next != NULL && (*item)->next->type == SECTION)
+            {
+                this->gv->drawLine(40 + SECTION * 20, i * 35 + 25, 40 + SECTION * 20, i * 35 + 58);
+                this->gv->drawLine(40 + SECTION * 20, i * 35 + 58, 50 + SECTION * 20, i * 35 + 58);
+            }
+            name = "Segment";
+        }
+        else
+        {
+            if ((*item)->next != NULL && (*item)->next->type != SEGMENT)
+            {
+                this->gv->drawLine(40 + SECTION * 20, i * 35 + 13, 40 + SECTION * 20, i * 35 + 56);
+                this->gv->drawLine(40 + SECTION * 20, i * 35 + 56, 50 + SECTION * 20, i * 35 + 56);
+            }
+            name = QString("Section %1").arg(section);
+            section++;
+        }
+
+        this->gv->addRectangle(name, (*item)->type, i);
+        item = &(*item)->next;
+    }
+
+}
+
 void MainWindow::resizeEvent(QResizeEvent* event)
 {
     emit resizeWindow(this->gv->size().width(), this->gv->size().height());
+    drawChart();
 }
 
 //******************************************************************************************

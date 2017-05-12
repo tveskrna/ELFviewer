@@ -19,7 +19,7 @@ void MyQGraphicsView::mousePressEvent(QMouseEvent * e)
 
 void MyQGraphicsView::changeSize(int width, int height)
 {
-    if (this->scene->height() <= height)
+    //if (this->scene->height() <= height)
     {
         this->setSceneRect(0, 0, width-20, height-50);
         this->setScene(scene);
@@ -65,7 +65,7 @@ void MyQGraphicsView::addRectangle(QString name, int type, int sectionNumb)
     scene->addItem(txt);
 }
 
-void MyQGraphicsView::drawLine(QPointF from, QPointF to)
+void MyQGraphicsView::drawLine(int xfrom, int yfrom, int xto, int yto)
 {
-
+    scene->addLine(xfrom, yfrom, xto, yto, QPen(Qt::black, 2));
 }

@@ -306,6 +306,7 @@ QString readFlags(Elf32_Word value)
         else result = result + ", Executable";
     }
 
+    if (result == "") result = "None";
     return result;
 }
 
@@ -531,7 +532,44 @@ void MainWindow::clickedOnGraph(QPointF pt)
                         break;
 
                     case SECTION:
+                        Elf32_Shdr section32;
+                        Elf64_Shdr section64;
 
+                        file.seekg(record->offsetHeader, ios::beg);
+
+                        result = readSection(&file, &section32, &section64, 0, READ);
+                        if (result == 0)
+                        {
+                            if (this->elfArch.arch32)
+                            {
+                                this->attributeTE->append(QString("Section name index: %1").arg(section32.sh_name));
+                                this->attributeTE->append(QString("Section type: " + getSecType(section32.sh_type)));
+                                QString flags = readFlags(section32.sh_flags);
+                                this->attributeTE->append(QString("Section flags: " + flags));
+                                this->attributeTE->append(QString("Section address: %1").arg(section32.sh_addr));
+                                this->attributeTE->append(QString("Section offset: %1").arg(section32.sh_offset));
+                                this->attributeTE->append(QString("Section size: %1").arg(section32.sh_size));
+                                this->attributeTE->append(QString("Section link: %1").arg(section32.sh_link));
+                                this->attributeTE->append(QString("Section info: %1").arg(section32.sh_info));
+                                this->attributeTE->append(QString("Section addess alignment: %1").arg(section32.sh_addralign));
+                                this->attributeTE->append(QString("Section entry size: %1").arg(section32.sh_entsize));
+
+                            }
+                            else
+                            {
+                                this->attributeTE->append(QString("Section name index: %1").arg(section64.sh_name));
+                                this->attributeTE->append(QString("Section type: " + getSecType(section64.sh_type)));
+                                QString flags = readFlags(section64.sh_flags);
+                                this->attributeTE->append(QString("Section flags: " + flags));
+                                this->attributeTE->append(QString("Section address: %1").arg(section64.sh_addr));
+                                this->attributeTE->append(QString("Section offset: %1").arg(section64.sh_offset));
+                                this->attributeTE->append(QString("Section size: %1").arg(section64.sh_size));
+                                this->attributeTE->append(QString("Section link: %1").arg(section64.sh_link));
+                                this->attributeTE->append(QString("Section info: %1").arg(section64.sh_info));
+                                this->attributeTE->append(QString("Section addess alignment: %1").arg(section64.sh_addralign));
+                                this->attributeTE->append(QString("Section entry size: %1").arg(section64.sh_entsize));
+                            }
+                        }
                         break;
 
                     default:

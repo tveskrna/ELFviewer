@@ -25,6 +25,7 @@
 //#include <elfio/elfio.hpp>
 #include "myqgraphicsview.h"
 #include "elf.h"
+#include "machine_os.h"
 
 using namespace std;
 

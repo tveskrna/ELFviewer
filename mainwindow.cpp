@@ -402,8 +402,6 @@ void MainWindow::clickedOnGraph(QPointF pt)
     int up, down, left, right;
     int pos = 0;
 
-    this->assembleTE->append(QString("x: %1  y: %2").arg(this->gv->height()).arg(this->gv->width()));
-
     while (pos < this->gv->height())
     {
         up   = 10 + pos * 35;
@@ -459,6 +457,14 @@ void MainWindow::clickedOnGraph(QPointF pt)
                         if (header.e_ident[5] == 1) this->attributeTE->append(QString("File encoding: LSB"));   //LSB
                         else this->attributeTE->append(QString("File encoding: MSB"));   //MSB
 
+                        this->attributeTE->append(QString("OS/ABI: " + getOS(header.e_ident[7])));
+
+                        this->attributeTE->append(QString("Machine: " + getMachines(header.e_machine)));
+
+                        if (header.e_version == 1) this->attributeTE->append(QString("Version: Current version"));
+                        else this->attributeTE->append(QString("Version: Invalid version"));
+
+                        this->attributeTE->append(QString("Start entry: %1").arg(header.e_entry));
                         this->attributeTE->append(QString("Header size: %1\n").arg(header.e_ehsize));
 
                         if (header.e_phoff != 0)
@@ -473,7 +479,7 @@ void MainWindow::clickedOnGraph(QPointF pt)
                         {
                             this->attributeTE->append(QString("Section header table offset: %1").arg(header.e_shoff));
                             this->attributeTE->append(QString("Number of section header table entries: %1").arg(header.e_shnum));
-                            this->attributeTE->append(QString("Section header table entry size: %1\n").arg(header.e_shentsize));
+                            this->attributeTE->append(QString("Section header entry size: %1\n").arg(header.e_shentsize));
                         }
                         else this->attributeTE->append(QString("File has no section header table\n"));
 
@@ -482,13 +488,13 @@ void MainWindow::clickedOnGraph(QPointF pt)
                             this->attributeTE->append(QString("Section name string table index: %1").arg(header.e_shstrndx));
                         }
 
+
                         break;
 
                     case SEGMENT:
 
                         Elf32_Phdr segment32;
                         Elf64_Phdr segment64;
-                        int result;
 
                         file.seekg(record->offsetHeader, ios::beg);
 
@@ -497,61 +503,7 @@ void MainWindow::clickedOnGraph(QPointF pt)
                         {
                             if (this->elfArch.arch32)
                             {
-                                switch (segment32.p_type)
-                                {
-                                    case PT_NULL:
-                                        this->attributeTE->append(QString("Segment type: PT_NULL"));
-                                    break;
-
-                                    case PT_LOAD :
-                                        this->attributeTE->append(QString("Segment type: PT_LOAD"));
-                                    break;
-
-                                    case PT_DYNAMIC :
-                                        this->attributeTE->append(QString("Segment type: PT_DYNAMIC"));
-                                    break;
-
-                                    case PT_INTERP :
-                                        this->attributeTE->append(QString("Segment type: PT_INTERP"));
-                                    break;
-
-                                    case PT_NOTE :
-                                        this->attributeTE->append(QString("Segment type: PT_NOTE"));
-                                    break;
-
-                                    case PT_SHLIB :
-                                        this->attributeTE->append(QString("Segment type: PT_SHLIB"));
-                                    break;
-
-                                    case PT_PHDR :
-                                        this->attributeTE->append(QString("Segment type: PT_PHDR"));
-                                    break;
-
-                                    case PT_LOPROC :
-                                        this->attributeTE->append(QString("Segment type: PT_LOPROC"));
-                                    break;
-
-                                    case PT_HIPROC :
-                                        this->attributeTE->append(QString("Segment type: PT_HIPROC"));
-                                    break;
-
-                                    case PT_TLS:
-                                        this->attributeTE->append(QString("Segment type: PT_TLS"));
-                                    break;
-
-                                    case PT_LOOS:
-                                        this->attributeTE->append(QString("Segment type: PT_LOOS"));
-                                    break;
-
-                                    case PT_HIOS:
-                                        this->attributeTE->append(QString("Segment type: PT_HIOS"));
-                                    break;
-
-                                    default:
-                                        this->attributeTE->append(QString("Segment type: Procesor specific"));
-                                    break;
-                                }
-
+                                this->attributeTE->append(QString("Segment type: " + getSegType(segment32.p_type)));
                                 this->attributeTE->append(QString("Segment offset: %1").arg(segment32.p_offset));
                                 this->attributeTE->append(QString("Segment virtual address: %1").arg(segment32.p_vaddr));
                                 this->attributeTE->append(QString("Segment physical address: %1").arg(segment32.p_paddr));
@@ -559,65 +511,12 @@ void MainWindow::clickedOnGraph(QPointF pt)
                                 this->attributeTE->append(QString("Segment size in memory: %1").arg(segment32.p_memsz));
                                 QString flags = readFlags(segment32.p_flags);
                                 this->attributeTE->append(QString("Segment flags: " + flags));
-                                this->attributeTE->append(QString("Segment align: %1").arg(segment32.p_align));
+                                this->attributeTE->append(QString("Segment alignment: %1").arg(segment32.p_align));
 
                             }
                             else
                             {
-                                switch (segment64.p_type)
-                                {
-                                    case PT_NULL:
-                                        this->attributeTE->append(QString("Segment type: PT_NULL"));
-                                    break;
-
-                                    case PT_LOAD :
-                                        this->attributeTE->append(QString("Segment type: PT_LOAD"));
-                                    break;
-
-                                    case PT_DYNAMIC :
-                                        this->attributeTE->append(QString("Segment type: PT_DYNAMIC"));
-                                    break;
-
-                                    case PT_INTERP :
-                                        this->attributeTE->append(QString("Segment type: PT_INTERP"));
-                                    break;
-
-                                    case PT_NOTE :
-                                        this->attributeTE->append(QString("Segment type: PT_NOTE"));
-                                    break;
-
-                                    case PT_SHLIB :
-                                        this->attributeTE->append(QString("Segment type: PT_SHLIB"));
-                                    break;
-
-                                    case PT_PHDR :
-                                        this->attributeTE->append(QString("Segment type: PT_PHDR"));
-                                    break;
-
-                                    case PT_LOPROC :
-                                        this->attributeTE->append(QString("Segment type: PT_LOPROC"));
-                                    break;
-
-                                    case PT_HIPROC :
-                                        this->attributeTE->append(QString("Segment type: PT_HIPROC"));
-                                    break;
-
-                                    case PT_TLS:
-                                        this->attributeTE->append(QString("Segment type: PT_TLS"));
-                                    break;
-
-                                    case PT_LOOS:
-                                        this->attributeTE->append(QString("Segment type: PT_LOOS"));
-                                    break;
-
-                                    case PT_HIOS:
-                                        this->attributeTE->append(QString("Segment type: PT_HIOS"));
-                                    break;
-
-                                    default:
-                                        this->attributeTE->append(QString("Segment type: Procesor specific"));
-                                    break;
-                                }
+                                this->attributeTE->append(QString("Segment type: " + getSegType(segment64.p_type)));
                                 this->attributeTE->append(QString("Segment offset: %1").arg(segment64.p_offset));
                                 this->attributeTE->append(QString("Segment virtual address: %1").arg(segment64.p_vaddr));
                                 this->attributeTE->append(QString("Segment physical address: %1").arg(segment64.p_paddr));
@@ -625,7 +524,7 @@ void MainWindow::clickedOnGraph(QPointF pt)
                                 this->attributeTE->append(QString("Segment size in memory: %1").arg(segment64.p_memsz));
                                 QString flags = readFlags(segment64.p_flags);
                                 this->attributeTE->append(QString("Segment flags: " + flags));
-                                this->attributeTE->append(QString("Segment align: %1").arg(segment64.p_align));
+                                this->attributeTE->append(QString("Segment alignment: %1").arg(segment64.p_align));
                             }
                         }
 

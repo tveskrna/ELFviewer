@@ -30,13 +30,14 @@
 using namespace std;
 
 typedef struct elfArchitecture {
-
-  int type;
-  Elf64_Off offset;
-  Elf64_Off offsetHeader;
-  Elf64_Half size;
-  struct elfArchitecture * next;
-  struct elfArchitecture * nextSeg;
+    QString * name;
+    int nameIndx;
+    int type;
+    Elf64_Off offset;
+    Elf64_Off offsetHeader;
+    Elf64_Half size;
+    struct elfArchitecture * next;
+    struct elfArchitecture * nextSeg;
 
 } *TElfArchitecture;
 
@@ -74,6 +75,7 @@ private slots:
     int readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* segment64, int offset, int controll);
     int readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* section64, int offset, int nmb, int controll);
 
+    int setNames();
     void drawChart();
     void resizeEvent(QResizeEvent* event);
 

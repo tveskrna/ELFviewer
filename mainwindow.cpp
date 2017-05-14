@@ -91,6 +91,8 @@ int MainWindow::addRecord(TElfArchitecture* newItem)
                 {
                     //create new record
                     TElfArchitecture tmpItem = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
+                    tmpItem->name = new QString("Section");
+                    tmpItem->nameIndx = (*newItem)->nameIndx;
                     tmpItem->type = SECTION;
 
                     tmpItem->offset = (*newItem)->offset;
@@ -166,6 +168,8 @@ int MainWindow::readHeader(fstream* file, Elf64_Ehdr* header, int controll)
     if (controll == CHECK)
     {
         TElfArchitecture item = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
+        item->name = new QString("ELF Header");
+        item->nameIndx = 0;
         item->type = HEADER;
         item->offset = 0;
         item->next = NULL;
@@ -217,6 +221,11 @@ int MainWindow::readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* se
     if (controll == CHECK)
     {
         TElfArchitecture item = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
+        item->name = new QString("Segment");
+
+        if (this->elfArch.arch32) item->nameIndx = (*segment32).p_type;
+        else item->nameIndx = (*segment64).p_type;
+
         item->type = SEGMENT;
 
         if (this->elfArch.arch32) item->offset = segment32->p_offset;
@@ -270,6 +279,10 @@ int MainWindow::readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* se
     if (controll == CHECK)
     {
         TElfArchitecture item = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
+        item->name = new QString("Section");
+        if (this->elfArch.arch32) item->nameIndx = (*section32).sh_name;
+        else item->nameIndx = (*section64).sh_name;
+
         item->type = SECTION;
 
         if (this->elfArch.arch32) item->offset = section32->sh_offset;
@@ -292,6 +305,48 @@ int MainWindow::readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* se
         //this->elfArch.count = this->elfArch.count + 1;
     }
 
+    return 0;
+}
+
+int MainWindow::setNames()
+{
+    TElfArchitecture table = elfArch.strTabPtr;
+    TElfArchitecture result;
+    QString tmp;
+    int j;
+
+    if (this->elfArch.strTab > 0)
+    {
+        fstream file (this->filename.toStdString().c_str(), ios::in|ios::binary|ios::ate);
+
+        char buffer[table->size];
+        file.seekg (table->offset, ios::beg);
+
+        file.read ((char*) &buffer, table->size);
+
+        result = elfArch.First;
+        for (int i = 0; i < elfArch.count; i++)
+        {
+            if (result->type == SEGMENT)
+            {
+                tmp = getSegType(result->nameIndx);
+            }
+            else if (result->type == SECTION)
+            {
+                j = result->nameIndx;
+                while (buffer[j] != '\0')
+                {
+                    tmp = tmp + buffer[j];
+                    j++;
+                }
+            }
+            if (tmp == "") tmp = "Empty";
+            result->name = new QString (tmp);
+            tmp = "";
+            result = result->next;
+        }
+    }
+    else return -1;
     return 0;
 }
 
@@ -394,6 +449,7 @@ void MainWindow::on_actionOpen_File_triggered()
             }
         }
 
+        setNames();
         drawChart();
         file.close();
     }
@@ -627,7 +683,7 @@ void MainWindow::drawChart()
             section++;
         }
 
-        this->gv->addRectangle(name, (*item)->type, i);
+        this->gv->addRectangle((*(*item)->name), (*item)->type, i);
         item = &(*item)->next;
     }
 

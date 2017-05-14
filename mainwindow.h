@@ -42,9 +42,11 @@ typedef struct elfArchitecture {
 
 typedef struct {
     TElfArchitecture First;
+    TElfArchitecture strTabPtr;
     bool arch32;
     bool lsb;
     int count;
+    int strTab;
 } TList;
 
 namespace Ui {
@@ -70,7 +72,7 @@ private slots:
 
     int readHeader(fstream* file, Elf64_Ehdr* headInf, int controll);
     int readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* segment64, int offset, int controll);
-    int readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* section64, int offset, int controll);
+    int readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* section64, int offset, int nmb, int controll);
 
     void drawChart();
     void resizeEvent(QResizeEvent* event);

@@ -180,6 +180,8 @@ int MainWindow::readHeader(fstream* file, Elf64_Ehdr* header, int controll)
         if ((*header).e_ident[5] == 1) this->elfArch.lsb = true;
         else this->elfArch.lsb = false;
 
+        this->elfArch.strTab = (*header).e_shstrndx;
+
         this->elfArch.count = 1;
     }
 
@@ -235,7 +237,7 @@ int MainWindow::readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* se
     return 0;
 }
 
-int MainWindow::readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* section64, int offset, int controll)
+int MainWindow::readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* section64, int offset, int nmb, int controll)
 {
 
     if (this->elfArch.arch32)
@@ -280,6 +282,11 @@ int MainWindow::readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* se
 
         if (this->elfArch.arch32) item->size = section32->sh_size;
         else item->size = section64->sh_size;
+
+        if (nmb == this->elfArch.strTab)
+        {
+            this->elfArch.strTabPtr = item;
+        }
 
         addRecord(&item);
         //this->elfArch.count = this->elfArch.count + 1;
@@ -379,7 +386,7 @@ void MainWindow::on_actionOpen_File_triggered()
 
             for (int i = 0; i < header.e_shnum; i++)
             {
-                result = readSection(&file, &section32, &section64, header.e_shoff + i * header.e_shentsize, CHECK);
+                result = readSection(&file, &section32, &section64, header.e_shoff + i * header.e_shentsize, i, CHECK);
                 if (result == 0)
                 {
                     //this->gv->addRectangle("Segment", SEGMENT, i+1);
@@ -537,7 +544,7 @@ void MainWindow::clickedOnGraph(QPointF pt)
 
                         file.seekg(record->offsetHeader, ios::beg);
 
-                        result = readSection(&file, &section32, &section64, 0, READ);
+                        result = readSection(&file, &section32, &section64, 0, -1, READ);
                         if (result == 0)
                         {
                             if (this->elfArch.arch32)

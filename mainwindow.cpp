@@ -24,22 +24,29 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    this->setWindowTitle("ELF viewer");
     this->setBaseSize(1000, 600);
 
     this->gv = new MyQGraphicsView();
     this->gv->setMaximumWidth(329);
+    this->gv->setMinimumWidth(329);
+    this->gv->setMinimumHeight(300);
     ui->horizontalLayout->layout()->addWidget(this->gv);
 
     this->attributeTE = new QTextEdit();
-    this->attributeTE->setReadOnly(true);
+    this->attributeTE->setMinimumWidth(320);
+    this->attributeTE->setMaximumWidth(350);
+    //this->attributeTE->setReadOnly(true);
     ui->horizontalLayout->layout()->addWidget(this->attributeTE);
 
     this->assembleTE = new QTextEdit();
-    this->assembleTE->setReadOnly(true);
+    this->assembleTE->setMinimumWidth(320);
+    //this->assembleTE->setReadOnly(true);
     ui->horizontalLayout->layout()->addWidget(this->assembleTE);
     //this->assembleTE->setVisible(false);
 
     this->elfArch.First = NULL;
+    this->filename = "";
 
     connect(gv, SIGNAL(clickedOnMe(QPointF)), this, SLOT(clickedOnGraph(QPointF)));
     connect(this, SIGNAL(resizeWindow(int, int)), gv, SLOT(changeSize(int, int)));
@@ -128,7 +135,27 @@ int MainWindow::addRecord(TElfArchitecture* newItem)
 
 //********************************Read-ELF**************************************************
 //******************************************************************************************
+QString readFlags(Elf32_Word value)
+{
+    QString result = "";
 
+    if ((value & (1 << 0)) != 0) result = "Write";
+
+    if ((value & (1 << 1)) != 0)
+    {
+        if (result == "") result = "Alloc";
+        else result = result + ", Alloc";
+    }
+
+    if ((value & (1 << 2)) != 0)
+    {
+        if (result == "") result = "Executable";
+        else result = result + ", Executable";
+    }
+
+    if (result == "") result = "None";
+    return result;
+}
 
 int MainWindow::readHeader(fstream* file, Elf64_Ehdr* header, int controll)
 {
@@ -305,6 +332,187 @@ int MainWindow::readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* se
         //this->elfArch.count = this->elfArch.count + 1;
     }
 
+    if (controll == READ)
+    {
+        unsigned char * buffer;
+
+        if (elfArch.arch32) buffer = (unsigned char*) malloc(sizeof(unsigned char) * section32->sh_size);        //alloc
+        else buffer = (unsigned char*) malloc(sizeof(unsigned char) * section64->sh_size);
+
+        if (elfArch.arch32) (*file).seekg(section32->sh_offset, ios::beg);      //seek
+        else (*file).seekg(section64->sh_offset, ios::beg);
+
+        if (elfArch.arch32) (*file).read ((char*) buffer, section32->sh_size);  //read
+        else (*file).read ((char*) buffer, section64->sh_size);
+
+        QString flags;
+        if (elfArch.arch32) flags = readFlags(section32->sh_flags);
+        else flags = readFlags(section64->sh_flags);
+
+        if (flags.indexOf("Executable", 0) != -1)
+        {
+            ud_t ud_obj;
+
+            ud_init(&ud_obj);
+            ud_set_input_buffer(&ud_obj, buffer, section64->sh_size);
+
+            if (elfArch.arch32) ud_set_mode(&ud_obj, 32);
+            else ud_set_mode(&ud_obj, 64);
+
+            ud_set_syntax(&ud_obj, UD_SYN_INTEL);
+
+            QString str = "";
+
+            while (ud_disassemble(&ud_obj)) {
+                this->assembleTE->append(ud_insn_asm(&ud_obj));
+            }
+        }
+        else
+        {
+            QString str = "";
+            char c;
+            if (elfArch.arch32)
+            {
+                (*file).seekg(section32->sh_offset, ios::beg);
+                switch (section32->sh_type)
+                {
+                    case SHT_SYMTAB:
+                        Elf32_Sym symTab;
+
+                        while ((*file).tellg() < section32->sh_offset + section32->sh_size)
+                        {
+                            (*file).read ((char*) &symTab.st_name, sizeof(symTab.st_name));
+                            (*file).read ((char*) &symTab.st_value, sizeof(symTab.st_value));
+                            (*file).read ((char*) &symTab.st_size, sizeof(symTab.st_size));
+                            (*file).read ((char*) &symTab.st_info, sizeof(symTab.st_info));
+                            (*file).read ((char*) &symTab.st_other, sizeof(symTab.st_other));
+                            (*file).read ((char*) &symTab.st_shndx, sizeof(symTab.st_shndx));
+
+                            this->assembleTE->append(QString("ST_name: %1").arg(symTab.st_name));
+                            this->assembleTE->append(QString("ST_value: %1").arg(symTab.st_value));
+                            this->assembleTE->append(QString("ST_size: %1").arg(symTab.st_size));
+                            this->assembleTE->append(QString("ST_info: %1").arg(symTab.st_info));
+                            this->assembleTE->append(QString("ST_other: %1").arg(symTab.st_other));
+                            this->assembleTE->append(QString("ST_shndx: %1\n").arg(symTab.st_shndx));
+                        }
+
+                    break;
+                    case SHT_RELA:
+                        Elf32_Rela relaTable;
+
+                        while ((*file).tellg() < section32->sh_offset + section32->sh_size)
+                        {
+                            (*file).read ((char*) &relaTable.r_offset, sizeof(relaTable.r_offset));
+                            (*file).read ((char*) &relaTable.r_info, sizeof(relaTable.r_info));
+                            (*file).read ((char*) &relaTable.r_addend, sizeof(relaTable.r_addend));
+
+                            this->assembleTE->append(QString("R_offset: %1").arg(relaTable.r_offset));
+                            this->assembleTE->append(QString("R_info: %1").arg(relaTable.r_info));
+                            this->assembleTE->append(QString("R_addend: %1\n").arg(relaTable.r_addend));
+                        }
+
+                    break;
+                    case SHT_HASH:
+                    break;
+                    case SHT_DYNAMIC:
+                    break;
+                    case SHT_NOTE:
+                    break;
+                    case SHT_REL:
+                    break;
+                    default:
+                        for (int i = 0; i < section64->sh_size; i++){
+                            c = buffer[i];
+                            /*if (c == '\0') str = " \\0 ";
+                            else str = c;*/
+                            str = str+c;
+                        }
+                        this->assembleTE->append(str);
+                    break;
+                }
+            }
+            else
+            {
+                (*file).seekg(section64->sh_offset, ios::beg);
+                switch (section64->sh_type)
+                {
+                    case SHT_SYMTAB:
+                        Elf64_Sym symTab;
+
+                        (*file).seekg(section64->sh_offset, ios::beg);
+
+                        while ((*file).tellg() < section64->sh_offset + section64->sh_size)
+                        {
+                            (*file).read ((char*) &symTab.st_name, sizeof(symTab.st_name));
+                            (*file).read ((char*) &symTab.st_value, sizeof(symTab.st_value));
+                            (*file).read ((char*) &symTab.st_size, sizeof(symTab.st_size));
+                            (*file).read ((char*) &symTab.st_info, sizeof(symTab.st_info));
+                            (*file).read ((char*) &symTab.st_other, sizeof(symTab.st_other));
+                            (*file).read ((char*) &symTab.st_shndx, sizeof(symTab.st_shndx));
+
+                            this->assembleTE->append(QString("ST_name: %1").arg(symTab.st_name));
+                            this->assembleTE->append(QString("ST_value: %1").arg(symTab.st_value));
+                            this->assembleTE->append(QString("ST_size: %1").arg(symTab.st_size));
+                            this->assembleTE->append(QString("ST_info: %1").arg(symTab.st_info));
+                            this->assembleTE->append(QString("ST_other: %1").arg(symTab.st_other));
+                            this->assembleTE->append(QString("ST_shndx: %1\n").arg(symTab.st_shndx));
+                        }
+
+                    break;
+                    case SHT_RELA:
+                        Elf64_Rela relaTable;
+
+                        while ((*file).tellg() < section64->sh_offset + section64->sh_size)
+                        {
+                            (*file).read ((char*) &relaTable.r_offset, sizeof(relaTable.r_offset));
+                            (*file).read ((char*) &relaTable.r_info, sizeof(relaTable.r_info));
+                            (*file).read ((char*) &relaTable.r_addend, sizeof(relaTable.r_addend));
+
+                            this->assembleTE->append(QString("R_offset: %1").arg(relaTable.r_offset));
+                            this->assembleTE->append(QString("R_info: %1").arg(relaTable.r_info));
+                            this->assembleTE->append(QString("R_addend: %1\n").arg(relaTable.r_addend));
+                        }
+
+                    break;
+                    case SHT_HASH:
+                    break;
+                    case SHT_DYNAMIC:
+                    break;
+                    case SHT_NOTE:
+                    break;
+                    case SHT_REL:
+                    break;
+
+                    default:
+                        for (int i = 0; i < section64->sh_size; i++){
+                            c = buffer[i];
+                            /*if (c == '\0') str = " \\0 ";
+                            else str = c;*/
+                            str = str+c;
+                        }
+                        this->assembleTE->append(str);
+                    break;
+                }
+            }
+        }
+
+        QTextCursor tmpCursor = this->assembleTE->textCursor();
+        tmpCursor.movePosition(QTextCursor::Start);
+        this->assembleTE->setTextCursor(tmpCursor);
+
+        /*QString text = this->assembleTE->toPlainText();
+
+        this->assembleTE->append("\n\n\n");
+        this->assembleTE->append(text);
+        if(text.size()>0){
+            mychars[0] = text[0].toAscii(); // assuming your text is ascii
+        }*/
+        /*for (int i = 0; i < section64->sh_size; i++){                              //print
+            this->assembleTE->insertPlainText(QString(buffer[i]));
+        }*/
+
+    }
+
     return 0;
 }
 
@@ -327,7 +535,8 @@ int MainWindow::setNames()
         result = elfArch.First;
         for (int i = 0; i < elfArch.count; i++)
         {
-            if (result->type == SEGMENT)
+            if (result->type == HEADER) tmp = "ELF Header";
+            else if (result->type == SEGMENT)
             {
                 tmp = getSegType(result->nameIndx);
             }
@@ -350,35 +559,11 @@ int MainWindow::setNames()
     return 0;
 }
 
-QString readFlags(Elf32_Word value)
-{
-    QString result = "";
-
-    if ((value & (1 << 0)) != 0) result = "Write";
-
-    if ((value & (1 << 1)) != 0)
-    {
-        if (result == "") result = "Alloc";
-        else result = result + ", Alloc";
-    }
-
-    if ((value & (1 << 2)) != 0)
-    {
-        if (result == "") result = "Executable";
-        else result = result + ", Executable";
-    }
-
-    if (result == "") result = "None";
-    return result;
-}
-
 //***********************************Events*************************************************
 //******************************************************************************************
 void MainWindow::on_actionOpen_File_triggered()
 {
     Elf64_Ehdr header;
-
-
     QString filename;
 
     this->assembleTE->clear();
@@ -458,6 +643,37 @@ void MainWindow::on_actionOpen_File_triggered()
         if (filename != "") QMessageBox::critical(this, "Wrong ELF file", "Can't open file: " + filename + " is not right");
     }
     return;
+}
+
+void MainWindow::on_actionSave_File_triggered()
+{
+    if (this->filename != "")
+    {
+        ifstream fileIn (this->filename.toStdString().c_str(), ios::in|ios::binary|ios::ate);
+        ofstream fileOut ((this->filename+"Test").toStdString().c_str(), ios::out|ios::binary|ios::ate);
+        if (fileIn.is_open())
+        {
+            if (fileOut.is_open())
+            {
+                int sizeIn = fileIn.tellg();
+                char byte;
+                fileIn.seekg (0, ios::beg);
+                for (int i = 0; i < sizeIn; i++)
+                {
+                    fileIn.read(&byte, sizeof(byte));
+                    fileOut.write(&byte, sizeof(byte));
+
+                }
+                fileOut.close();
+            }
+            fileIn.close();
+        }
+    }
+}
+
+void MainWindow::on_actionExit_triggered()
+{
+    close();
 }
 
 void MainWindow::clickedOnGraph(QPointF pt)
@@ -592,6 +808,8 @@ void MainWindow::clickedOnGraph(QPointF pt)
                             }
                         }
 
+
+
                         break;
 
                     case SECTION:
@@ -674,6 +892,11 @@ void MainWindow::drawChart()
         }
         else
         {
+            if (i == 1)
+            {
+                this->gv->drawLine(50 + SECTION * 20, i * 35 + 23, 40 + SECTION * 20, i * 35 + 23);
+                this->gv->drawLine(40 + SECTION * 20, i * 35 + 23, 40 + SECTION * 20, 35);
+            }
             if ((*item)->next != NULL && (*item)->next->type != SEGMENT)
             {
                 this->gv->drawLine(40 + SECTION * 20, i * 35 + 13, 40 + SECTION * 20, i * 35 + 56);

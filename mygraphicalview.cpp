@@ -54,10 +54,12 @@ void MyQGraphicsView::addRectangle(QString name, int type, int sectionNumb)
     rect->setRect(50 + type * 20, sectionNumb * 35 + 10, 200, 25);
     rect->setBrush(brush->color());
 
-    int posOfText = 100 - name.size() * 4;
-
     QGraphicsTextItem * txt = new QGraphicsTextItem;
-    txt->setFont(QFont("Arial", 10, QFont::Bold));
+    QFont font("Arial", 10, QFont::Bold);
+    QFontMetrics fm(font);
+    int pixWidth = fm.width(name);
+    int posOfText = 100 - pixWidth / 2;
+    txt->setFont(font);
     txt->setPos(50 + type * 20 + posOfText, sectionNumb * 35 + 10);
     txt->setPlainText(name);
 

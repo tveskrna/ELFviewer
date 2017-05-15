@@ -10,6 +10,7 @@
 #include <QPoint>
 #include <QBrush>
 #include <QPen>
+#include <QFontMetrics>
 #include <string>
 #include <QString>
 #include <QGraphicsRectItem>

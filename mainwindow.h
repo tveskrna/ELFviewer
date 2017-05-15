@@ -19,10 +19,12 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <stdio.h>
 #include <QString>
 #include <bitset>
 
 //#include <elfio/elfio.hpp>
+#include <udis86.h>
 #include "myqgraphicsview.h"
 #include "elf.h"
 #include "machine_os.h"
@@ -70,6 +72,8 @@ public slots:
 
 private slots:
     void on_actionOpen_File_triggered();
+    void on_actionSave_File_triggered();
+    void on_actionExit_triggered();
 
     int readHeader(fstream* file, Elf64_Ehdr* headInf, int controll);
     int readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* segment64, int offset, int controll);

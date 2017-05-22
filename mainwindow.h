@@ -34,6 +34,7 @@ using namespace std;
 typedef struct elfArchitecture {
     int failure;
     bool show;
+    Elf64_Xword flags;
     QString * name;
     int nameIndx;
     int type;
@@ -52,6 +53,7 @@ typedef struct {
     int filesize;
     int count;
     int strTab;
+    int actual;
 } TList;
 
 namespace Ui {
@@ -73,11 +75,13 @@ public slots:
     void clickedOnGraph(QPointF pt);
 
 private slots:
-    void openFile(QString filename);
+    int openFile(QString filename);
     void on_actionOpen_File_triggered();
-    void saveFile();
+    int saveFile(QString filename);
     void on_actionSave_File_triggered();
     void on_actionExit_triggered();
+    void attChanged();
+    void assChanged();
 
     int readHeader(fstream* file, Elf64_Ehdr* headInf, int controll);
     int readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* segment64, int offset, int controll);
@@ -90,6 +94,8 @@ private slots:
     int addRecord(TElfArchitecture* newItem);
     TElfArchitecture seekRecord(int orderNumber);
 
+    void on_actionSave_As_triggered();
+
 private:
     Ui::MainWindow *ui;
     QTextEdit * assembleTE;
@@ -97,6 +103,8 @@ private:
     MyQGraphicsView * gv;
     TList elfArch;
     QString filename;
+    bool attCh;
+    bool assCh;
 protected:
 
 };

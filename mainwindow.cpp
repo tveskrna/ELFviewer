@@ -15,6 +15,7 @@
 
 #define CHECK 0
 #define READ 1
+#define READ_H 2
 
 //using namespace ELFIO;
 using namespace std;
@@ -46,10 +47,15 @@ MainWindow::MainWindow(QWidget *parent) :
     //this->assembleTE->setVisible(false);
 
     this->elfArch.First = NULL;
+    this->elfArch.count = 0;
     this->filename = "";
 
     connect(gv, SIGNAL(clickedOnMe(QPointF)), this, SLOT(clickedOnGraph(QPointF)));
     connect(this, SIGNAL(resizeWindow(int, int)), gv, SLOT(changeSize(int, int)));
+
+    connect(this->attributeTE, SIGNAL(textChanged()),this, SLOT(attChanged()));
+    connect(this->assembleTE, SIGNAL(textChanged()),this, SLOT(assChanged()));
+
     emit resizeWindow(1, 1);
 }
 
@@ -94,12 +100,13 @@ int MainWindow::addRecord(TElfArchitecture* newItem)
         {
             if ((*item)->type == SEGMENT)
             {
-                if (((*newItem)->offset >= (*item)->offset) && ((*newItem)->offset <= ((*item)->offset + (*item)->size)))
+                if (((*newItem)->offset >= (*item)->offset) && ((*newItem)->offset < ((*item)->offset + (*item)->size)))
                 {
                     //create new record
                     TElfArchitecture tmpItem = (elfArchitecture*) malloc(sizeof(struct elfArchitecture));
                     tmpItem->failure = (*newItem)->failure;
                     tmpItem->show = (*newItem)->show;
+                    tmpItem->flags = (*newItem)->flags;
                     tmpItem->name = new QString("Section");
                     tmpItem->nameIndx = (*newItem)->nameIndx;
                     tmpItem->type = SECTION;
@@ -136,7 +143,7 @@ int MainWindow::addRecord(TElfArchitecture* newItem)
 
 //********************************Read-ELF**************************************************
 //******************************************************************************************
-QString readFlags(Elf32_Word value)
+QString readFlags(Elf64_Xword value)
 {
     QString result = "";
 
@@ -199,9 +206,11 @@ int MainWindow::readHeader(fstream* file, Elf64_Ehdr* header, int controll)
         item->name = new QString("ELF Header");
         item->failure = 0;
         item->show = true;
+        item->flags = (*header).e_flags;
         item->nameIndx = 0;
         item->type = HEADER;
         item->offset = 0;
+        item->offsetHeader = 0;
         item->next = NULL;
         item->size = (*header).e_ehsize;
 
@@ -216,6 +225,7 @@ int MainWindow::readHeader(fstream* file, Elf64_Ehdr* header, int controll)
         this->elfArch.strTab = (*header).e_shstrndx;
 
         this->elfArch.count = 1;
+        this->elfArch.actual = 0;
     }
 
     return 0;
@@ -263,6 +273,9 @@ int MainWindow::readSegment(fstream* file, Elf32_Phdr* segment32, Elf64_Phdr* se
         item->name = new QString("Segment");
         item->show = true;
         item->failure = mistake;
+
+        if (this->elfArch.arch32) item->flags = segment32->p_flags;
+        else item->flags = segment64->p_flags;
 
         if (this->elfArch.arch32) item->nameIndx = (*segment32).p_type;
         else item->nameIndx = (*segment64).p_type;
@@ -333,6 +346,9 @@ int MainWindow::readSection(fstream* file, Elf32_Shdr* section32, Elf64_Shdr* se
         item->name = new QString("Section");
         item->failure = mistake;
         item->show = true;
+        if (this->elfArch.arch32) item->flags =(*section32).sh_flags;
+        else item->flags = (*section64).sh_flags;
+
         if (this->elfArch.arch32) item->nameIndx = (*section32).sh_name;
         else item->nameIndx = (*section64).sh_name;
 
@@ -857,7 +873,7 @@ int MainWindow::setNames()
 
 //***********************************Events*************************************************
 //******************************************************************************************
-void MainWindow::openFile(QString filename)
+int MainWindow::openFile(QString filename)
 {
     Elf64_Ehdr header;
     fstream file (filename.toStdString().c_str(), ios::in|ios::binary|ios::ate);
@@ -877,7 +893,9 @@ void MainWindow::openFile(QString filename)
             if (result == 3) QMessageBox::critical(this, "Wrong ELF file", "ELF header of: " + filename + " is not right.\n Incorrect file encoding.");
             if (result == 4) QMessageBox::critical(this, "Wrong ELF file", "ELF header of: " + filename + " is not right.\n Incorrect fie version.");
             file.close();
-            return;
+            this->attCh = false;
+            this->assCh = false;
+            return -1;
         }
 
         //SEGMENT
@@ -899,7 +917,9 @@ void MainWindow::openFile(QString filename)
 
                     drawChart();
                     file.close();
-                    return;
+                    this->attCh = false;
+                    this->assCh = false;
+                    return -1;
                 }
             }
         }
@@ -923,20 +943,25 @@ void MainWindow::openFile(QString filename)
 
                     drawChart();
                     file.close();
-                    return;
+                    this->attCh = false;
+                    this->assCh = false;
+                    return -1;
                 }
             }
         }
 
         setNames();
         drawChart();
+        this->attCh = false;
+        this->assCh = false;
         file.close();
     }
     else
     {
         if (filename != "") QMessageBox::critical(this, "Wrong ELF file", "Can't open file: " + filename + " is not right");
+        return -1;
     }
-    return;
+    return 0;
 }
 
 void MainWindow::on_actionOpen_File_triggered()
@@ -955,40 +980,303 @@ void MainWindow::on_actionOpen_File_triggered()
 
  }
 
-void MainWindow::saveFile()
+int MainWindow::saveFile(QString filenameSave)
 {
     if (this->filename != "")
     {
-        ifstream fileIn (this->filename.toStdString().c_str(), ios::in|ios::binary|ios::ate);
-        ofstream fileOut ((this->filename+"Test").toStdString().c_str(), ios::out|ios::binary|ios::ate);
+        TElfArchitecture item = seekRecord(this->elfArch.actual);
+        Elf64_Ehdr headerForWrite;
+        Elf32_Phdr segmentForWrite32;
+        Elf64_Phdr segmentForWrite64;
+        Elf32_Shdr sectionForWrite32;
+        Elf64_Shdr sectionForWrite64;
+
+        char * buffer;
+        char* p;
+        int size;
+        long converted;
+        fstream fileIn (this->filename.toStdString().c_str(), ios::in|ios::binary|ios::ate);
+
         if (fileIn.is_open())
         {
-            if (fileOut.is_open())
-            {
-                int sizeIn = fileIn.tellg();
-                char byte;
-                fileIn.seekg (0, ios::beg);
-                for (int i = 0; i < sizeIn; i++)
-                {
-                    fileIn.read(&byte, sizeof(byte));
-                    fileOut.write(&byte, sizeof(byte));
-                    /*if (i == 64) //how to corrupt files
-                    {
-                        byte = 0;
-                        fileOut.write(&byte, sizeof(byte));
-                    }*/
-                }
-                fileOut.close();
-            }
+            size = fileIn.tellg();
+
+            fileIn.seekg (0, ios::beg);   //start of file
+            buffer = (char*) malloc(sizeof(char) * size);   //alloc
+            fileIn.read ((char*) buffer, size);
+
+            fileIn.seekg (0, ios::beg);
+            readHeader(&fileIn, &headerForWrite, READ_H);
+
+            fileIn.seekg (item->offsetHeader, ios::beg);
+
+            if (item->type == SEGMENT) readSegment(&fileIn, &segmentForWrite32, &segmentForWrite64, 0, READ_H);
+            else readSection(&fileIn, &sectionForWrite32, &sectionForWrite64, 0, 0, READ_H, "");
+
             fileIn.close();
         }
+        else
+        {
+            QMessageBox::critical(this, "Warning", "Program can't open file: \n" + this->filename);
+            return 1;
+        }
+
+        ofstream fileOut ((filenameSave).toStdString().c_str(), ios::out|ios::binary|ios::ate);
+        if (fileOut.is_open())
+        {
+            for (int i = 0; i < size; i++)
+            {
+                if (this->attCh)
+                {
+                    if (item->offsetHeader == i)
+                    {
+                        QString str = this->attributeTE->toPlainText();
+                        QString substr;
+                        int index;
+
+                        if (item->type == HEADER)
+                        {
+                            //type
+                            index = str.indexOf("\n");
+                            substr = str.mid(0, index);
+                            str.remove(0, index + 1);
+                            substr = substr.remove(0, strlen("File type: "));
+
+                            if (substr == "ET_NONE") headerForWrite.e_type = ET_NONE;
+                            else if (substr == "ET_REL") headerForWrite.e_type = ET_REL;
+                            else if (substr == "ET_EXEC") headerForWrite.e_type = ET_EXEC;
+                            else if (substr == "ET_DYN") headerForWrite.e_type = ET_DYN;
+                            else if (substr == "ET_CORE") headerForWrite.e_type = ET_CORE;
+                            else if (substr == "ET_LOPROC") headerForWrite.e_type = ET_LOPROC;
+                            else if (substr == "ET_HIPROC") headerForWrite.e_type = ET_HIPROC;
+                            else
+                            {
+                                converted = strtol(substr.toStdString().c_str(), &p, 10);
+                                if (*p) {
+                                    //return 2;
+                                }
+                                else {
+                                    headerForWrite.e_type = converted;
+                                }
+                            }
+
+                            //ph offset
+                            index = str.indexOf("Programm header offset: ");
+                            str.remove(0, index);
+
+                            index = str.indexOf("\n");
+                            substr = str.mid(0, index);
+                            str.remove(0, index + 1);
+                            substr = substr.remove(0, strlen("Programm header offset: "));
+
+                            converted = strtol(substr.toStdString().c_str(), &p, 10);
+                            if (*p) {
+                                //return 2;
+                            }
+                            else {
+                                headerForWrite.e_phoff = converted;
+                            }
+
+                            //sh offset
+                            index = str.indexOf("Section header table offset: ");
+                            str.remove(0, index);
+
+                            index = str.indexOf("\n");
+                            substr = str.mid(0, index);
+                            str.remove(0, index + 1);
+                            substr = substr.remove(0, strlen("Section header table offset: "));
+
+                            converted = strtol(substr.toStdString().c_str(), &p, 10);
+                            if (*p) {
+                                //return 2;
+                            }
+                            else {
+                                headerForWrite.e_shoff = converted;
+                            }
+
+                            for (int j = 0; j < EI_NIDENT; j++) fileOut.write((char*) &(headerForWrite.e_ident[j]), sizeof(char));
+
+                            fileOut.write((char *) &(headerForWrite.e_type), sizeof(headerForWrite.e_type));
+                            fileOut.write((char *) &(headerForWrite.e_machine), sizeof(headerForWrite.e_machine));
+                            fileOut.write((char *) &(headerForWrite.e_version), sizeof(headerForWrite.e_version));
+                            fileOut.write((char *) &(headerForWrite.e_entry), sizeof(headerForWrite.e_entry));
+                            fileOut.write((char *) &(headerForWrite.e_phoff), sizeof(headerForWrite.e_phoff));
+                            fileOut.write((char *) &(headerForWrite.e_shoff), sizeof(headerForWrite.e_shoff));
+                            fileOut.write((char *) &(headerForWrite.e_flags), sizeof(headerForWrite.e_flags));
+                            fileOut.write((char *) &(headerForWrite.e_ehsize), sizeof(headerForWrite.e_ehsize));
+                            fileOut.write((char *) &(headerForWrite.e_phentsize), sizeof(headerForWrite.e_phentsize));
+                            fileOut.write((char *) &(headerForWrite.e_phnum), sizeof(headerForWrite.e_phnum));
+                            fileOut.write((char *) &(headerForWrite.e_shentsize), sizeof(headerForWrite.e_shentsize));
+                            fileOut.write((char *) &(headerForWrite.e_shnum), sizeof(headerForWrite.e_shnum));
+                            fileOut.write((char *) &(headerForWrite.e_shstrndx), sizeof(headerForWrite.e_shstrndx));
+
+                            i = i + headerForWrite.e_ehsize;
+
+                        }
+                        else if (item->type == SEGMENT)
+                        {
+                            //Segment offset:
+                            index = str.indexOf("Segment offset: ");
+                            str.remove(0, index);
+
+                            index = str.indexOf("\n");
+                            substr = str.mid(0, index);
+                            str.remove(0, index + 1);
+                            substr = substr.remove(0, strlen("Segment offset: "));
+
+                            converted = strtol(substr.toStdString().c_str(), &p, 10);
+                            if (*p) {
+                                //return 2;
+                            }
+                            else {
+                                if (this->elfArch.arch32) segmentForWrite32.p_offset = converted;
+                                else segmentForWrite64.p_offset = converted;
+                            }
+
+                            if (this->elfArch.arch32)
+                            {
+                                fileOut.write((char *) &(segmentForWrite32.p_type), sizeof(segmentForWrite32.p_type));
+                                fileOut.write((char *) &(segmentForWrite32.p_flags), sizeof(segmentForWrite32.p_flags));
+                                fileOut.write((char *) &(segmentForWrite32.p_offset), sizeof(segmentForWrite32.p_offset));
+                                fileOut.write((char *) &(segmentForWrite32.p_vaddr), sizeof(segmentForWrite32.p_vaddr));
+                                fileOut.write((char *) &(segmentForWrite32.p_paddr), sizeof(segmentForWrite32.p_paddr));
+                                fileOut.write((char *) &(segmentForWrite32.p_filesz), sizeof(segmentForWrite32.p_filesz));
+                                fileOut.write((char *) &(segmentForWrite32.p_memsz), sizeof(segmentForWrite32.p_memsz));
+                                fileOut.write((char *) &(segmentForWrite32.p_align), sizeof(segmentForWrite32.p_align));
+                            }
+                            else
+                            {
+                                fileOut.write((char *) &(segmentForWrite64.p_type), sizeof(segmentForWrite64.p_type));
+                                fileOut.write((char *) &(segmentForWrite64.p_flags), sizeof(segmentForWrite64.p_flags));
+                                fileOut.write((char *) &(segmentForWrite64.p_offset), sizeof(segmentForWrite64.p_offset));
+                                fileOut.write((char *) &(segmentForWrite64.p_vaddr), sizeof(segmentForWrite64.p_vaddr));
+                                fileOut.write((char *) &(segmentForWrite64.p_paddr), sizeof(segmentForWrite64.p_paddr));
+                                fileOut.write((char *) &(segmentForWrite64.p_filesz), sizeof(segmentForWrite64.p_filesz));
+                                fileOut.write((char *) &(segmentForWrite64.p_memsz), sizeof(segmentForWrite64.p_memsz));
+                                fileOut.write((char *) &(segmentForWrite64.p_align), sizeof(segmentForWrite64.p_align));
+                            }
+                            i = i + headerForWrite.e_phentsize;
+                        }
+                        else    //SECTION
+                        {
+                            //Section offset:
+                            index = str.indexOf("Section offset: ");
+                            str.remove(0, index);
+
+                            index = str.indexOf("\n");
+                            substr = str.mid(0, index);
+                            str.remove(0, index + 1);
+                            substr = substr.remove(0, strlen("Section offset: "));
+
+                            converted = strtol(substr.toStdString().c_str(), &p, 10);
+                            if (*p) {
+                                //return 2;
+                            }
+                            else {
+                                if (this->elfArch.arch32) sectionForWrite32.sh_offset = converted;
+                                else sectionForWrite64.sh_offset = converted;
+                            }
+
+                            if (this->elfArch.arch32)
+                            {
+                                fileOut.write((char *) &(sectionForWrite32.sh_name), sizeof(sectionForWrite32.sh_name));
+                                fileOut.write((char *) &(sectionForWrite32.sh_type), sizeof(sectionForWrite32.sh_type));
+                                fileOut.write((char *) &(sectionForWrite32.sh_flags), sizeof(sectionForWrite32.sh_flags));
+                                fileOut.write((char *) &(sectionForWrite32.sh_addr), sizeof(sectionForWrite32.sh_addr));
+                                fileOut.write((char *) &(sectionForWrite32.sh_offset), sizeof(sectionForWrite32.sh_offset));
+                                fileOut.write((char *) &(sectionForWrite32.sh_size), sizeof(sectionForWrite32.sh_size));
+                                fileOut.write((char *) &(sectionForWrite32.sh_link), sizeof(sectionForWrite32.sh_link));
+                                fileOut.write((char *) &(sectionForWrite32.sh_info), sizeof(sectionForWrite32.sh_info));
+                                fileOut.write((char *) &(sectionForWrite32.sh_addralign), sizeof(sectionForWrite32.sh_addralign));
+                                fileOut.write((char *) &(sectionForWrite32.sh_entsize), sizeof(sectionForWrite32.sh_entsize));
+                            }
+                            else
+                            {
+                                fileOut.write((char *) &(sectionForWrite64.sh_name), sizeof(sectionForWrite64.sh_name));
+                                fileOut.write((char *) &(sectionForWrite64.sh_type), sizeof(sectionForWrite64.sh_type));
+                                fileOut.write((char *) &(sectionForWrite64.sh_flags), sizeof(sectionForWrite64.sh_flags));
+                                fileOut.write((char *) &(sectionForWrite64.sh_addr), sizeof(sectionForWrite64.sh_addr));
+                                fileOut.write((char *) &(sectionForWrite64.sh_offset), sizeof(sectionForWrite64.sh_offset));
+                                fileOut.write((char *) &(sectionForWrite64.sh_size), sizeof(sectionForWrite64.sh_size));
+                                fileOut.write((char *) &(sectionForWrite64.sh_link), sizeof(sectionForWrite64.sh_link));
+                                fileOut.write((char *) &(sectionForWrite64.sh_info), sizeof(sectionForWrite64.sh_info));
+                                fileOut.write((char *) &(sectionForWrite64.sh_addralign), sizeof(sectionForWrite64.sh_addralign));
+                                fileOut.write((char *) &(sectionForWrite64.sh_entsize), sizeof(sectionForWrite64.sh_entsize));
+                            }
+                            i = i + headerForWrite.e_shentsize;
+                        }
+                    }
+                }
+
+                if (this->assCh)
+                {
+                    /*QString flagsTmp = readFlags(item->flags);
+                    if (flagsTmp.indexOf("Executable", 0) == -1)   //at this moment can't edit assembler
+                    {
+                        if (item->offset == i)
+                        {
+                            //get content, write it, i+contentsize before change
+                        }
+                    }*/
+                }
+
+                fileOut.write(&(buffer[i]), sizeof(char));
+
+            }
+            fileOut.close();
+        }
+        else
+        {
+            QMessageBox::critical(this, "Warning", "Program can't open file: \n" + filenameSave);
+            return 2;
+        }
     }
+
+    /*if (this->filename != "")
+        {
+            ifstream fileIn (this->filename.toStdString().c_str(), ios::in|ios::binary|ios::ate);
+            ofstream fileOut ((this->filename+"Test").toStdString().c_str(), ios::out|ios::binary|ios::ate);
+            if (fileIn.is_open())
+            {
+                if (fileOut.is_open())
+                {
+                    int sizeIn = fileIn.tellg();
+                    char byte;
+                    fileIn.seekg (0, ios::beg);
+                    for (int i = 0; i < sizeIn; i++)
+                    {
+                        fileIn.read(&byte, sizeof(byte));
+                        fileOut.write(&byte, sizeof(byte));
+                        if (i == 64) //how to corrupt files
+                        {
+                            byte = 0;
+                            fileOut.write(&byte, sizeof(byte));
+                        }
+                    }
+                    fileOut.close();
+                }
+                fileIn.close();
+            }
+        }*/
+    return 0;
 }
 
 void MainWindow::on_actionSave_File_triggered()
 {
-    saveFile();
+    saveFile(this->filename);
+    openFile(this->filename);
     return;
+}
+
+void MainWindow::on_actionSave_As_triggered()
+{
+    QString saveFilename;
+    saveFilename = QFileDialog::getSaveFileName(this, tr("Open Image"), "", tr("Image Files (*)"));
+    if (saveFile(saveFilename) > 0) return;
+    if (saveFilename == this->filename)
+    {
+        openFile(saveFilename); //reload
+    }
 }
 
 void MainWindow::on_actionExit_triggered()
@@ -1016,11 +1304,57 @@ void MainWindow::clickedOnGraph(QPointF pt)
 
             if ((pt.x() >= left) && (pt.x() <= right))
             {
+
+                if (this->attCh || this->assCh)
+                {
+                    QMessageBox msgBox;
+                    msgBox.setText("The file has been modified.");
+                    msgBox.setInformativeText("Do you want to save your changes?");
+                    msgBox.setStandardButtons(QMessageBox::Save | QMessageBox::Cancel);
+                    QAbstractButton* pButtonDis = msgBox.addButton(tr("Don't Save"), QMessageBox::AcceptRole);
+                    QAbstractButton* pButtonYes = msgBox.addButton(tr("Save As"), QMessageBox::YesRole);
+
+                    int ret = msgBox.exec();
+
+                    switch(ret)
+                    {
+                        case QMessageBox::Save: //save
+                            if (saveFile(this->filename) > 0) return;
+                            openFile(this->filename);
+                        break;
+
+                        case QMessageBox::Cancel:   //cancel
+                            return;
+                        break;
+
+                        default:
+                            if (msgBox.clickedButton() == pButtonYes) //save as
+                            {
+                                QString saveFilename;
+                                saveFilename = QFileDialog::getSaveFileName(this, tr("Open Image"), "", tr("Image Files (*)"));
+                                if (saveFile(saveFilename) > 0) return;
+                                if (saveFilename == this->filename)
+                                {
+                                    openFile(saveFilename); //reload
+                                }
+                            }
+                            else if (msgBox.clickedButton() == pButtonDis) //don't save
+                            {
+                                //pass
+                            }
+                        break;
+                    }
+                    record = seekRecord(pos);
+                }
+
+                this->elfArch.actual = pos;
                 fstream file (filename.toStdString().c_str(), ios::in|ios::binary|ios::ate);
                 if (file.is_open())
                 {
                     int result;
+
                     file.seekg(record->offset, ios::beg);
+
                     this->attributeTE->clear();
                     this->assembleTE->clear();
 
@@ -1031,23 +1365,29 @@ void MainWindow::clickedOnGraph(QPointF pt)
                         result = readHeader(&file, &header, READ);
 
                         switch (header.e_type) {
-                            case NO_TYPE:
-                                this->attributeTE->append(QString("File type: no type"));
+                            case ET_NONE:
+                                this->attributeTE->append(QString("File type: ET_NONE"));
                                 break;
-                            case RELOCATABLE:
-                                this->attributeTE->append(QString("File type: relocatable"));
+                            case ET_REL:
+                                this->attributeTE->append(QString("File type: ET_REL"));
                                 break;
-                            case EXECUTABLE:
-                                this->attributeTE->append(QString("File type: executable"));
+                            case ET_EXEC:
+                                this->attributeTE->append(QString("File type: ET_EXEC"));
                                 break;
-                            case SHARED:
-                                this->attributeTE->append(QString("File type: shared"));
+                            case ET_DYN:
+                                this->attributeTE->append(QString("File type: ET_DYN"));
                                 break;
-                            case CORE:
-                                this->attributeTE->append(QString("File type: core"));
+                            case ET_CORE:
+                                this->attributeTE->append(QString("File type: ET_CORE"));
+                                break;
+                            case ET_LOPROC:
+                                this->attributeTE->append(QString("File type: ET_LOPROC"));
+                                break;
+                            case ET_HIPROC:
+                                this->attributeTE->append(QString("File type: ET_HIPROC"));
                                 break;
                             default:
-                                this->attributeTE->append(QString("File type: procesor specific %1").arg(header.e_type));
+                                this->attributeTE->append(QString("File type: %1").arg(header.e_type));
                                 break;
                         }
 
@@ -1064,29 +1404,30 @@ void MainWindow::clickedOnGraph(QPointF pt)
                         if (header.e_version == 1) this->attributeTE->append(QString("Version: Current version"));
                         else this->attributeTE->append(QString("Version: Invalid version"));
 
+                        this->attributeTE->append(QString("Flags: %1").arg(header.e_flags));
                         this->attributeTE->append(QString("Start entry: %1").arg(header.e_entry));
                         this->attributeTE->append(QString("Header size: %1\n").arg(header.e_ehsize));
 
-                        if (header.e_phoff != 0)
-                        {
+                        //if (header.e_phoff != 0)
+                        //{
                             this->attributeTE->append(QString("Programm header offset: %1").arg(header.e_phoff));
                             this->attributeTE->append(QString("Number of program header entries: %1").arg(header.e_phnum));
                             this->attributeTE->append(QString("Programm header entry size: %1\n").arg(header.e_phentsize));
-                        }
-                        else this->attributeTE->append(QString("File has no programm header\n"));
+                       // }
+                        //else this->attributeTE->append(QString("File has no programm header\n"));
 
-                        if (header.e_shoff != 0)
-                        {
+                        //if (header.e_shoff != 0)
+                        //{
                             this->attributeTE->append(QString("Section header table offset: %1").arg(header.e_shoff));
                             this->attributeTE->append(QString("Number of section header table entries: %1").arg(header.e_shnum));
                             this->attributeTE->append(QString("Section header entry size: %1\n").arg(header.e_shentsize));
-                        }
-                        else this->attributeTE->append(QString("File has no section header table\n"));
+                        //}
+                        //else this->attributeTE->append(QString("File has no section header table\n"));
 
-                        if (header.e_shstrndx != 0)
-                        {
+                        //if (header.e_shstrndx != 0)
+                        //{
                             this->attributeTE->append(QString("Section name string table index: %1").arg(header.e_shstrndx));
-                        }
+                        //}
 
 
                         break;
@@ -1176,6 +1517,8 @@ void MainWindow::clickedOnGraph(QPointF pt)
                     default:
                         break;
                     }
+                    this->attCh = false;
+                    this->assCh = false;
                     file.close();
                  }
 
@@ -1246,6 +1589,16 @@ void MainWindow::resizeEvent(QResizeEvent* event)
     drawChart();
 }
 
+void MainWindow::attChanged()
+{
+    this->attCh = true;
+}
+
+void MainWindow::assChanged()
+{
+    this->assCh = true;
+}
+
 //******************************************************************************************
 //******************************************************************************************
 
@@ -1253,3 +1606,4 @@ MainWindow::~MainWindow()
 {
     delete ui;
 }
+

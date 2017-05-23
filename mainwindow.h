@@ -96,6 +96,8 @@ private slots:
 
     void on_actionSave_As_triggered();
 
+    void on_actionHelp_triggered();
+
 private:
     Ui::MainWindow *ui;
     QTextEdit * assembleTE;

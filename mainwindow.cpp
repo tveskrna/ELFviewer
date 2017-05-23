@@ -17,6 +17,7 @@
 #define READ 1
 #define READ_H 2
 
+#define CODE "\x55\x48\x8b\x05\xb8\x13\x00\x00"
 //using namespace ELFIO;
 using namespace std;
 
@@ -1607,3 +1608,8 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
+
+void MainWindow::on_actionHelp_triggered()
+{
+
+}
